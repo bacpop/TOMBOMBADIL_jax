@@ -557,15 +557,12 @@ non_omega_mat = jnp.array(([[ 1.,  1., 0., 0., 0.,  1.,  1.,  1., 0.,  1., 0.,  
 @jit
 def diag_update(M, pimult):
     # Compute the diagonal
-    index = jnp.arange(0, 61, 1, jnp.uint16)
     # I think this might be the same as
     # M += jnp.diag(jnp.einsum('ij,ij->i', M, pi_mult))
     # but check this doesn't add loads of zeros
     # check https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.fori_loop.html
     for i in range(61):
-        # M = M.at[i, i].set(-jnp.dot(M[i, :], pimult[i, :]))
-        M = M.at[i, i].set(-jnp.dot(jnp.take(M, index), jnp.take(pimult, index)))
-        index += 61 # or use lax.slice?
+        M = M.at[i, i].set(-jnp.dot(M[i, :], pimult[i, :]))
     return M
 
 @jit
@@ -1099,7 +1096,7 @@ def build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult):
     M = M.at[60,58].set(delta)
     M = M.at[60,59].set(alpha)
 
-    M = jnp.matmul(jnp.matmul(M, pimat).T, pimat).T
+    M = jnp.multiply(jnp.multiply(M, pimat).T, pimat).T
     M = diag_update(M, pimult)
 
     return M

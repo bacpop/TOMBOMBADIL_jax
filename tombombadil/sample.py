@@ -1,54 +1,27 @@
 #!/usr/bin/env python
 
 import logging
-import numpy as np
-import numpyro
-import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+import optax
+import jax
+import jax.numpy as jnp
 import jax.lax
 import jax.numpy as jnp
-import jax.random as random
-from jax import vmap
 
 from .gtr import build_GTR
 from .likelihood import gen_alpha
-vmap_gen_alpha = vmap(gen_alpha, (0, None, None, None, None, None), 0)
 
-def model(pi_eq, N, l, pimat, pimatinv, pimult, obs_mat):
-    # GTR params (shared)
-    alpha = numpyro.sample("alpha", dist.LogNormal(1, 1))
-    beta = numpyro.sample("beta", dist.LogNormal(1, 1))
-    gamma = numpyro.sample("gamma", dist.LogNormal(1, 1))
-    delta = numpyro.sample("delta", dist.LogNormal(1, 1))
-    epsilon = numpyro.sample("epsilon", dist.LogNormal(1, 1))
-    eta = numpyro.sample("eta", dist.LogNormal(1, 1))
-
-    # Rate params
-    theta = numpyro.sample("theta", dist.Gamma(1, 2))
-
+@jax.jit
+def model(alpha, beta, gamma, delta, epsilon, eta, theta, omega, pi_eq, log_pi, N, pimat, pimatinv, pimult, obs_vec):
     # Calculate substitution rate matrix under neutrality
     A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult)
     meanrate = -jnp.dot(jnp.diagonal(A), pi_eq)
     # Calculate substitution rate matrix
     scale = (theta / 2.0) / meanrate
 
-    # Over loci
-    loci = numpyro.plate('locus', l, dim=-2)
-    with loci:
-        omega = numpyro.sample("omega", dist.Exponential(0.5))
-        alpha = vmap_gen_alpha(omega, A, pimat, pimult, pimatinv, scale)
+    alpha = gen_alpha(omega, A, pimat, pimult, pimatinv, scale)
 
-    log_prob = numpyro.contrib.control_flow.scan(count_prob, 0, alpha, length=61, reverse=False, history=0)
-    log_prob = logsumexp(log_prob + log_pi, axis=0, keepdims=True) # log pi probably needs broadcasting
-    numpyro.factor("forward_log_prob", log_prob)
-
-# TODO need a closure so signature is f(carry, alpha)
-def count_prob(loci, alpha, N, obs_mat):
-    with loci:
-        obs = jnp.log(numpyro.sample('obs', dist.DirichletMultinomial(concentration=alpha, total_count=N), obs=obs_mat))
-    return obs
-
-# TODO the sparse multinomial
+    log_prob = jax.scipy.stats.multinomial.pmf(obs_vec, N, alpha)
+    return jax.scipy.special.logsumexp(log_prob + log_pi, axis=0)
 
 def transforms(X, pi_eq):
     import numpy as np
@@ -56,6 +29,7 @@ def transforms(X, pi_eq):
     n_loci = len(N)
 
     # pi transforms
+    log_pi = np.log(pi_eq)
     pimat = np.diag(np.sqrt(pi_eq))
     pimatinv = np.diag(np.divide(1, np.sqrt(pi_eq)))
 
@@ -64,29 +38,42 @@ def transforms(X, pi_eq):
         for i in range(61):
             pimult[i, j] = np.sqrt(pi_eq[j] / pi_eq[i])
 
-    obs_mat = np.empty((n_loci, 61, 61))
-    N_tile = np.empty((n_loci, 61))
-    for l in range(n_loci):
-        obs_mat[l, :, :] = np.broadcast_to(X[:, l], (61, 61))
-        N_tile[l, :] = N[l]
+    #obs_mat = np.empty((n_loci, 61, 61))
+    #N_tile = np.empty((n_loci, 61), dtype=np.int32)
+    #for l in range(n_loci):
+    #    obs_mat[l, :, :] = np.broadcast_to(X[:, l], (61, 61))
+    #    N_tile[l, :] = N[l]
 
-    return N_tile, n_loci, pimat, pimatinv, pimult, obs_mat
+    #return N_tile, n_loci, log_pi, pimat, pimatinv, pimult, obs_mat
+    return N, n_loci, log_pi, pimat, pimatinv, pimult
 
 def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Precomputing transforms...")
-    N, l, pimat, pimatinv, pimult, obs_mat = transforms(X, pi_eq)
+    col = 31
+    N, l, log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
 
     logging.info("Compiling model...")
-    numpyro.set_platform(platform)
-    # this doesn't do what you might think, it's more like having multiple GPUs
-    #numpyro.set_host_device_count(threads)
-    nuts_kernel = NUTS(model)
-    mcmc = MCMC(nuts_kernel, num_warmup=warmup, num_samples=samples)
-    rng_key = random.PRNGKey(0)
-    mcmc.run(rng_key, pi_eq, N, l, pimat, pimatinv, pimult, obs_mat,
-             extra_fields=('potential_energy',), chain_method="vectorized")
-    mcmc.print_summary()
-    pe = np.mean(-mcmc.get_extra_fields()['potential_energy'])
-    print(f'Expected log joint density: {pe}')
+    def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
+
+    # TODO: set threads/device/optim options
+    # TODO: work for multiple codons
+    solver = optax.lbfgs()
+
+    # For now: [alpha, beta, gamma, delta, epsilon, eta, theta, omega]
+    params = jnp.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+
+    print('Likelihood: ', fn(params))
+    opt_state = solver.init(params)
+    value_and_grad = optax.value_and_grad_from_state(fn)
+
+    for _ in range(5):
+        value, grad = value_and_grad(params, state=opt_state)
+        updates, opt_state = solver.update(
+        grad, opt_state, params, value=value, grad=grad, value_fn=fn
+        )
+
+        params = optax.apply_updates(params, updates)
+        print('Likelihood: ', fn(params))
+
 
 

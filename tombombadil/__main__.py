@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 
-# Do this at the top of the script
-import numpyro
-# numpyro.set_platform('gpu')
-numpyro.set_host_device_count(4)
+import optax
+import jax
+import jax.numpy as jnp
 
 import logging
 import gzip

@@ -4,11 +4,10 @@ import jax.numpy as jnp
 from jax.lax import dynamic_update_slice_in_dim
 
 from .gtr import update_GTR
-vmap_update_GTR = vmap(update_GTR, (None, 0, None), 0)
 
 @jit
 def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
-    mutmat = vmap_update_GTR(A, omega, pimult)
+    mutmat = update_GTR(A, omega, pimult)
 
     w, v = jnp.linalg.eigh(mutmat, UPLO='U') # NB this runs on a batch of matrices over first dim, hence reshape below
     E = 1 / (1 - 2 * scale * jnp.reshape(w, (61)))
@@ -39,16 +38,13 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #    dynamic_update_slice_in_dim(m_AB, col, i, 1)
 
     # Add equilibrium frequencies (option 2)
-    m_AB = jnp.matmul(jnp.matmul(m_AB, pimatinv).T, pimat)
+    m_AB = jnp.multiply(jnp.multiply(m_AB, pimatinv).T, pimat)
 
     # Normalise by m_AA
-    m_AA = jnp.reshape(jnp.repeat(jnp.diag(m_AB), 61), (61, 61)) # Creates matrix with diagonals copied along each row
+    m_AA = jnp.reshape(jnp.repeat(jnp.diagonal(m_AB), 61), (61, 61)) # Creates matrix with diagonals copied along each row
     m_AB = jnp.maximum(jnp.divide(m_AB, m_AA) - jnp.eye(61, 61), 1.0e-06) # Makes min value 1e-6 (and sets diagonal, as -I makes this 0)
 
     muti = m_AB + jnp.eye(61, 61)
     return muti
-
-vmap_gen_alpha = vmap(gen_alpha, (0, None, None, None, None, None), 0)
-
 
 
