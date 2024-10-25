@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "tombombadil"
+version = "0.1.0"
+description = "JAX rewrite of TOMBOMBADIL"
+authors = ["John Lees <jlees@ebi.ac.uk>"]
+license = "Apache 2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.13"
+numpy = "^2.1.2"
+jax = "^0.4.35"
+optax = "^0.2.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
