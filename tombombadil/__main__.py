@@ -1,9 +1,5 @@
 #!/usr/bin/env python
 
-import optax
-import jax
-import jax.numpy as jnp
-
 import logging
 import gzip
 import numpy as np

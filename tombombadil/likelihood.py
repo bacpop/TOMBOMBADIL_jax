@@ -1,50 +1,41 @@
 
-from jax import jit, vmap
-import jax.numpy as jnp
-from jax.lax import dynamic_update_slice_in_dim
+import numpy as np
 
 from .gtr import update_GTR
 
-@jit
+
 def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     mutmat = update_GTR(A, omega, pimult)
 
-    w, v = jnp.linalg.eigh(mutmat, UPLO='U') # NB this runs on a batch of matrices over first dim, hence reshape below
-    E = 1 / (1 - 2 * scale * jnp.reshape(w, (61)))
-    V_inv = jnp.matmul(jnp.reshape(v, (61, 61)), jnp.diag(E)) # TODO probably can be made more efficient
+    w, v = np.linalg.eigh(mutmat, UPLO='U') # computes eigen vectors (v) and values (w)
+    print(f"w.shape={w.shape}")
+    print(f"v.shape={v.shape}")
+    E = 1 / (1 - 2 * scale * np.reshape(w, (61)))
+    V_inv = np.matmul(np.reshape(v, (61, 61)), np.diag(E)) # TODO probably can be made more efficient
 
     # Create m_AB for each ancestral codon
-    m_AB = jnp.zeros((61, 61))
-    index = jnp.arange(0, 61, 1, jnp.uint16)
+    m_AB = np.zeros((61, 61))
+    index = np.arange(0, 61, 1, np.uint16)
     #sqp = jnp.sqrt(pi_eq)
     for i in range(61):
         # Va = rep_matrix(row(V, i), 61)
         # Va should be matrix where rows are repeats of row i of V
-        Va = jnp.reshape(jnp.repeat(jnp.take(v, index), 61), (61, 61))
-        index += 61
+        Va = np.repeat(v[i, :], 61).reshape(61, 61)
         # m_AB[i, ] = to_row_vector(rows_dot_product(Va, V_inv))
-        # Possible with jax.vmap?
-        # row_sum_fn = jax.vmap(lambda x, y: jnp.vdot(x, y), (1, 1), 0)
-        row = jnp.reshape(jnp.einsum('ij,ij->i', Va, V_inv), (-1, 1))
-        # If using option 1 below
-        # row = jnp.divide(row, sqp.at[i].get())
-
-        # Note, this is adding into columns, so removes the transpose from the matmul below
-        m_AB = dynamic_update_slice_in_dim(m_AB, row, i, 1)
-
-    # Add equilibrium frequencies (option 1)
-    #for i in range(61):
-    #    col = jnp.multiply(dynamic_slice_in_dim(m_AB, (0, i), 61), sqp.at[i].get())
-    #    dynamic_update_slice_in_dim(m_AB, col, i, 1)
-
-    # Add equilibrium frequencies (option 2)
-    m_AB = jnp.multiply(jnp.multiply(m_AB, pimatinv).T, pimat)
-
+        m_AB[i, :] = np.sum(Va * V_inv, axis=1)
+    #print("m_AB", m_AB[31, ])
+    # Add equilibrium frequencies 
+    m_AB = np.multiply(np.multiply(m_AB, pimatinv).T, pimat)
+    print("m_AB", m_AB[31, ]) 
+    #print((m_AB.max()))
     # Normalise by m_AA
-    m_AA = jnp.reshape(jnp.repeat(jnp.diagonal(m_AB), 61), (61, 61)) # Creates matrix with diagonals copied along each row
-    m_AB = jnp.maximum(jnp.divide(m_AB, m_AA) - jnp.eye(61, 61), 1.0e-06) # Makes min value 1e-6 (and sets diagonal, as -I makes this 0)
-
-    muti = m_AB + jnp.eye(61, 61)
+    m_AA = np.reshape(np.repeat(np.diagonal(m_AB), 61), (61, 61)) # Creates matrix with diagonals copied along each row
+    m_AB = np.maximum(np.divide(m_AB, m_AA) - np.eye(61, 61), 1.0e-06) # Makes min value 1e-6 (and sets diagonal, as -I makes this 0)
+    print("m_AA", m_AA[31, ])
+    print((m_AA.max())) 
+    print("m_AB", m_AB[31, ])
+    print((m_AB.max())) # appears to become zero here.
+    muti = m_AB + np.eye(61, 61)
     return muti
 
 

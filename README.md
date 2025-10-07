@@ -3,3 +3,7 @@
 
 >    "Old Tom Bombadil is a merry fellow! Bright Blue his jacket is, and his boots are yellow!"
     —Tom Bombadil
+
+run using 
+poetry install 
+poetry run python tombombadil-runner.py --alignment porB3.carriage.noindels.txt
