@@ -2,26 +2,15 @@
 
 import logging
 import numpy as np
-import jax.numpy as jnp
-import jax.scipy.stats as stats
-import jax.scipy.special as special
-from jax.scipy.special import gammaln
+import scipy
+import scipy.special as special
+#import jax.numpy as jnp
+#import jax.scipy.stats as stats
+#import jax.scipy.special as special
+#from jax.scipy.special import gammaln
 
 from .gtr import build_GTR
 from .likelihood import gen_alpha
-
-def my_dirichlet_multinomial_logpmf(x, a):
-    x = jnp.asarray(x)
-    a = jnp.asarray(a)
-
-    N = jnp.sum(x)
-    a0 = jnp.sum(a)
-
-    term1 = gammaln(N + 1) - jnp.sum(gammaln(x + 1))
-    term2 = gammaln(a0) - gammaln(N + a0)
-    term3 = jnp.sum(gammaln(x + a) - gammaln(a))
-
-    return term1 + term2 + term3
 
 
 def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, pimat, pimatinv, pimult, obs_vec):
@@ -41,10 +30,10 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     print('alpha: ',alpha)
     print("obs_vec: ", obs_vec)
     print("N: ", N)
-    print(np.sum(alpha,axis=1).tolist()) # alpha rows clearly do not sum to one but this is what the pmf is expecting -- a problem? no, for dirichlet not a problem
+    #print(np.sum(alpha,axis=1).tolist()) # alpha rows clearly do not sum to one but this is what the pmf is expecting -- a problem? no, for dirichlet not a problem
     #log_prob = scipy.stats.multinomial.pmf(obs_vec, N, alpha) # this is where it breaks but is it because the code is broken or because of lack of diversity? It is not because of the lack of diversity
-    #log_prob = scipy.stats.multinomial.logpmf(obs_vec, N, alpha) # this is pmf in John's code but we think it might need to be pmf?
-    log_prob = my_dirichlet_multinomial_logpmf(obs_vec, alpha) # this is pmf in John's code but we think it might need to be logpmf?
+    log_prob = scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) # this is pmf in John's code but we think it might need to be pmf?
+    #log_prob = my_dirichlet_multinomial_logpmf(obs_vec, alpha) # this is pmf in John's code but we think it might need to be logpmf?
 
     print('log_prob: ',log_prob)
     print('log_prop_pi',log_prob + log_pi)
@@ -91,7 +80,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     # For now: [alpha, beta, gamma, delta, epsilon, eta, theta, omega]
     # 6 parameters of GTR matrix, theta, omega
     #params = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
-    params = jnp.array([1, 1, 1, 1, 1, 1, 0.5, 0.5])
+    params = np.array([1, 1, 1, 1, 1, 1, 0.5, 0.5])
 
     print('Likelihood: ', fn(params))
 
