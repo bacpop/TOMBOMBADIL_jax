@@ -26,15 +26,15 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
         Va = jnp.repeat(v[i, :], 61).reshape(61, 61)
         # m_AB[i, ] = to_row_vector(rows_dot_product(Va, V_inv))
         #m_AB[i, :] = jnp.sum(Va * V_inv, axis=1) # previous version: possibly rows/columns swapped
-        m_AB[:, i] = jnp.sum(Va * V_inv.T, axis=0)
-    print("m_AB", m_AB[7, ])
+        m_AB = m_AB.at[:, i].set(jnp.sum(Va * V_inv.T, axis=0))
+    #print("m_AB", m_AB[7, ])
     #print("pimat", pimat)
     #print("pimatinv", pimatinv)
     # Add equilibrium frequencies 
     #m_AB = jnp.multiply(jnp.multiply(m_AB, pimatinv).T, pimat)
     m_AB = jnp.matmul(jnp.matmul(m_AB.T, pimatinv).T, pimat)
     #print("m_AB", m_AB[31, ]) 
-    print("m_AB2", m_AB[7, ])
+    #print("m_AB2", m_AB[7, ])
     #### agrees with stan version up to here
 
     #print("m_AB", m_AB)
@@ -43,12 +43,14 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #m_AA = jnp.reshape(jnp.repeat(jnp.diagonal(m_AB), 61), (61, 61)) # Creates matrix with diagonals copied along each row
     #m_AA = m_AA.T
     #m_AB = jnp.maximum(jnp.divide(m_AB, m_AA) - jnp.eye(61, 61), 1.0e-06) # Makes min value 1e-6 (and sets diagonal, as -I makes this 0)
+    #print("m_AB",m_AB.at[1,1])
+    #print("m_AB",m_AB[:,1]/ m_AB[1,1])
     for i in range(61):
-        m_AB[:,i] /= m_AB[i,i]
-        m_AB[i,i] = 1.0e-06 # why not actually zero? John?
+        m_AB = m_AB.at[:,i].set(jnp.true_divide(m_AB[:,i], m_AB[i,i]))
+        m_AB = m_AB.at[i,i].set(1.0e-06)
         for j in range(61):
             if m_AB[i,j] < 0: 
-                m_AB[i,j] = 1.0e-06
+                m_AB = m_AB.at[i,j].set(1.0e-06)
     
     #plt.matshow(m_AB)
     #plt.show()

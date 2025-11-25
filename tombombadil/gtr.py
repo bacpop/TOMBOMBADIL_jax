@@ -553,7 +553,7 @@ non_omega_mat = jnp.array(([[ 1.,  1., 0., 0., 0.,  1.,  1.,  1., 0.,  1., 0.,  
          1.,  1.,  1.,  1.,  1., 0.,  1.,  1.,  1., 0.,  1.,  1.,  1.,
         0.,  1.,  1.,  1., 0.,  1.,  1.,  1.,  1.]]))
 
-@jit
+#@jit
 def diag_update(M, pimult):
     # Compute the diagonal
     # I think this might be the same as
@@ -565,7 +565,7 @@ def diag_update(M, pimult):
         M = M.at[i, i].set(-jnp.dot(M[i, :], pimult[i, :]))
     return M
 
-@jit
+#@jit
 def build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult):
     M = jnp.zeros((61, 61))
 
@@ -1108,7 +1108,7 @@ def build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult):
     print(M)
     return M
 
-@jit
+#@jit
 def update_GTR(M, omega, pimult):
     # wasteful but 'neat'?
     # M = jnp.multiply(M, jnp.multiply(omega_mat, omega) + non_omega_mat)
