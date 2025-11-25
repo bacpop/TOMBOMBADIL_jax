@@ -15,19 +15,33 @@ def my_dirichlet_multinomial_logpmf(x, a):
     x = jnp.asarray(x)
     a = jnp.asarray(a)
 
-    N = jnp.sum(x)
-    a0 = jnp.sum(a)
+    N = jnp.sum(x, axis=-1)
+    a0 = jnp.sum(a, axis=-1)
 
-    term1 = gammaln(N + 1) - jnp.sum(gammaln(x + 1))
+    term1 = gammaln(N + 1) - jnp.sum(gammaln(x + 1), axis=-1)
     term2 = gammaln(a0) - gammaln(N + a0)
-    term3 = jnp.sum(gammaln(x + a) - (gammaln(a)))
+    term3 = jnp.sum(gammaln(x + a) - (gammaln(a)), axis=-1)
 
     print("term3",term3)
 
     return term1 + term2 + term3 # gives 1407.2288
-    #return gammaln(a0) + gammaln(N + 1) - gammaln(N + a0) + jnp.sum(gammaln(x + a)) - jnp.sum(gammaln(a))- jnp.sum(gammaln(x + 1)) # gives 1407.2301
-    #return gammaln(a0) + gammaln(N + 1) - gammaln(N + a0) + jnp.sum(gammaln(x + a) - (gammaln(a) + gammaln(x + 1))) # gives -1143.8478
-    #return gammaln(a0) + gammaln(N + 1) - gammaln(N + a0) + jnp.sum(gammaln(x + a) - gammaln(a) - gammaln(x + 1)) # gives -1143.8478
+
+# This version is adapted from the scipy implementation
+def my_dirichlet_multinomial_logpmf_2(x, a):
+    x = jnp.asarray(x)
+    a = jnp.asarray(a)
+
+    N = jnp.sum(x, axis=-1)
+    a0 = jnp.sum(a, axis=-1)
+
+    out = jnp.asarray(gammaln(a0) + gammaln(N + 1) - gammaln(N + a0))
+    out += (gammaln(x + a) - (gammaln(a) + gammaln(x + 1))).sum(axis=-1)
+
+    # The scipy version sets the logpmf to -inf if N and sum(x) disagree, but
+    # we're calculating N from x here so not really relevant
+    # out = jnp.place(out, N != x.sum(axis=-1), -jnp.inf, inplace=False)
+
+    return out
 
 def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, pimat, pimatinv, pimult, obs_vec):
     # Calculate substitution rate matrix under neutrality
@@ -49,8 +63,11 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     print(np.sum(alpha,axis=1).tolist()) # alpha rows clearly do not sum to one but this is what the pmf is expecting -- a problem? no, for dirichlet not a problem
     #log_prob = scipy.stats.multinomial.pmf(obs_vec, N, alpha) # this is where it breaks but is it because the code is broken or because of lack of diversity? It is not because of the lack of diversity
     #log_prob = scipy.stats.multinomial.logpmf(obs_vec, N, alpha) # this is pmf in John's code but we think it might need to be pmf?
-    log_prob = scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) # gives -10.21301 (correct)
-    #log_prob = my_dirichlet_multinomial_logpmf(obs_vec, alpha) # our custom, jnp based dirichlet_multinomial.logpmf but something is wrong in the implementation this function gives us an integer, we want a vector of length 61
+    # log_prob = scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) # gives -10.21301 (correct)
+    log_prob = my_dirichlet_multinomial_logpmf(obs_vec, alpha) # our custom, jnp based dirichlet_multinomial.logpmf but something is wrong in the implementation this function gives us an integer, we want a vector of length 61
+
+    print("Difference between scipy and custom jax dirichlet-multinomial logpmf:", scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) - my_dirichlet_multinomial_logpmf(obs_vec, alpha))
+    print("Difference between scipy and other custom jax dirichlet-multinomial logpmf:", scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) - my_dirichlet_multinomial_logpmf_2(obs_vec, alpha))
     
     print("log_prob_shape",log_prob.shape)
     print('log_prob: ',log_prob)
