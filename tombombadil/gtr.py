@@ -1,3 +1,4 @@
+from jax import jit
 import jax.numpy as jnp
 
 # Not used for now, see commented code in update_GTR
