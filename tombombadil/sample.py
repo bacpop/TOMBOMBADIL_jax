@@ -2,6 +2,7 @@
 
 import logging
 import numpy as np
+import scipy
 import jax.numpy as jnp
 import jax.scipy.stats as stats
 import jax.scipy.special as special
@@ -19,10 +20,14 @@ def my_dirichlet_multinomial_logpmf(x, a):
 
     term1 = gammaln(N + 1) - jnp.sum(gammaln(x + 1))
     term2 = gammaln(a0) - gammaln(N + a0)
-    term3 = jnp.sum(gammaln(x + a) - gammaln(a))
+    term3 = jnp.sum(gammaln(x + a) - (gammaln(a)))
 
-    return term1 + term2 + term3
+    print("term3",term3)
 
+    return term1 + term2 + term3 # gives 1407.2288
+    #return gammaln(a0) + gammaln(N + 1) - gammaln(N + a0) + jnp.sum(gammaln(x + a)) - jnp.sum(gammaln(a))- jnp.sum(gammaln(x + 1)) # gives 1407.2301
+    #return gammaln(a0) + gammaln(N + 1) - gammaln(N + a0) + jnp.sum(gammaln(x + a) - (gammaln(a) + gammaln(x + 1))) # gives -1143.8478
+    #return gammaln(a0) + gammaln(N + 1) - gammaln(N + a0) + jnp.sum(gammaln(x + a) - gammaln(a) - gammaln(x + 1)) # gives -1143.8478
 
 def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, pimat, pimatinv, pimult, obs_vec):
     # Calculate substitution rate matrix under neutrality
@@ -44,8 +49,10 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     print(np.sum(alpha,axis=1).tolist()) # alpha rows clearly do not sum to one but this is what the pmf is expecting -- a problem? no, for dirichlet not a problem
     #log_prob = scipy.stats.multinomial.pmf(obs_vec, N, alpha) # this is where it breaks but is it because the code is broken or because of lack of diversity? It is not because of the lack of diversity
     #log_prob = scipy.stats.multinomial.logpmf(obs_vec, N, alpha) # this is pmf in John's code but we think it might need to be pmf?
-    log_prob = my_dirichlet_multinomial_logpmf(obs_vec, alpha) # this is pmf in John's code but we think it might need to be logpmf?
-
+    log_prob = scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) # gives -10.21301 (correct)
+    #log_prob = my_dirichlet_multinomial_logpmf(obs_vec, alpha) # our custom, jnp based dirichlet_multinomial.logpmf but something is wrong in the implementation this function gives us an integer, we want a vector of length 61
+    
+    print("log_prob_shape",log_prob.shape)
     print('log_prob: ',log_prob)
     print('log_prop_pi',log_prob + log_pi)
     print('logsumexp_prop_pi',special.logsumexp(log_prob + log_pi, axis=0))
