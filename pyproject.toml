@@ -11,6 +11,8 @@ python = "^3.13"
 numpy = "^2.1.2"
 jax = "^0.4.35"
 optax = "^0.2.3"
+scipy = "*"
+matplotlib = "*"
 
 
 [build-system]

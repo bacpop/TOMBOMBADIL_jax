@@ -1,12 +1,9 @@
 #!/usr/bin/env python
 
-import optax
-import jax
-import jax.numpy as jnp
-
 import logging
 import gzip
 import numpy as np
+import jax.numpy as jnp
 
 from .__init__ import __version__
 from .sample import run_sampler
@@ -90,19 +87,20 @@ def count_codons(file_name):
             if ambig.any():
                 s[ambig] = 65
             codon_s = s.reshape(-1, 3).copy()
+            #print('codon_s',codon_s)
             # Convert to usual binary encoding
             codon_s[codon_s==97] = 0
             codon_s[codon_s==99] = 1
             codon_s[codon_s==103] = 2
             codon_s[codon_s==116] = 3
             # Bit shift
-            codon_s[:, 1] = np.left_shift(codon_s[:, 1], 2)
-            codon_s[:, 2] = np.left_shift(codon_s[:, 2], 4)
+            codon_s[:,1] = np.left_shift(codon_s[:, 1], 2)
+            codon_s[:,2] = np.left_shift(codon_s[:, 2], 4)
             codon_map = np.fmin(np.sum(codon_s, 1), 65)
             # slow? Alternative would be to make X have shape (samples, n_codons)
             # and copy codon map into each row, then run np.bincount along columns
             for idx, count in enumerate(codon_map):
-                X[count, idx] += 1
+                X[count,idx] += 1
 
     # reorder and cut off stops, ambiguous
     X = X[col_order,:]
@@ -122,6 +120,7 @@ def main():
     X, n_samples = count_codons(options.alignment)
     logging.info(f"Read {n_samples} samples and {X.shape[1]} codons")
 
+    #print("X",X.max())
     if options.pi is None:
         pi = np.array([1/61 for i in range(61)])
 
