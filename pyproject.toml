@@ -1,19 +1,15 @@
-[tool.poetry]
+[project]
 name = "tombombadil"
 version = "0.1.0"
 description = "JAX rewrite of TOMBOMBADIL"
-authors = ["John Lees <jlees@ebi.ac.uk>"]
+authors = [
+    { name = "John Lees", email = "jlees@ebi.ac.uk" },
+    { name = "Leonie Lorenz" },
+    { name = "Matthew Russell", email = "matthewjohnrussell@gmail.com" },
+]
 license = "Apache 2.0"
-readme = "README.md"
-
-[tool.poetry.dependencies]
-python = "^3.13"
-numpy = "^2.1.2"
-jax = "^0.4.35"
-optax = "^0.2.3"
-scipy = "*"
-matplotlib = "*"
-
+requires-python = ">=3.14"
+dependencies = ["jax (>=0.8.1,<0.9.0)", "numpy (>=2.3.5,<3.0.0)", "scipy (>=1.16.3,<2.0.0)", "matplotlib (>=3.10.7,<4.0.0)"]
 
 [build-system]
 requires = ["poetry-core"]
