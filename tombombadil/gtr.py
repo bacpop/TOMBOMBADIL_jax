@@ -1105,7 +1105,7 @@ def build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult):
     # seems to work. Stan apparently does matrix multiplication when using the * operator on two matrices
     #print(M)
     M = diag_update(M, pimult)
-    print(M)
+    #print(M)
     return M
 
 #@jit

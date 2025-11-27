@@ -6,13 +6,13 @@ from .gtr import update_GTR
 
 
 def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
-    print("A", A[7, ])
+    #print("A", A[7, ])
     mutmat = update_GTR(A, omega, pimult)
     #print("mutmat", mutmat)
 
     w, v = jnp.linalg.eigh(mutmat, UPLO='U') # computes eigen vectors (v) and values (w)
-    print(f"w.shape={w.shape}")
-    print(f"v.shape={v.shape}")
+    #print(f"w.shape={w.shape}")
+    #print(f"v.shape={v.shape}")
     E = 1 / (1 - 2 * scale * jnp.reshape(w, (61)))
     V_inv = jnp.matmul(jnp.reshape(v, (61, 61)), jnp.diag(E)) # TODO probably can be made more efficient
 
@@ -55,14 +55,14 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #plt.matshow(m_AB)
     #plt.show()
     m_AB = m_AB.T
-    print("m_AB3", m_AB[7, ])
-    print(jnp.diag(m_AB))
+    #print("m_AB3", m_AB[7, ])
+    #print(jnp.diag(m_AB))
     #print("m_AA", m_AA[31, ])
     #print((m_AA.max())) 
     #print("m_AB", m_AB[31, ])
     #print((m_AB.max())) # appears to become zero here.
     muti = m_AB + jnp.eye(61, 61)
-    print(jnp.diag(muti))
+    #print(jnp.diag(muti))
     return muti
 
 
