@@ -131,16 +131,17 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     solver = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-2)) # define optimizer (adam, with clipping)
     
     def loss(p): return -fn(p) # define loss function (will be minimized that is why it must be -fn(p))
-
+    
+    logging.info("Fitting model...")
     opt_state = solver.init(params)
-    for _ in range(50): # define number of iterations of optimizer
+    for _ in range(20): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
-        print('Gradient: ',((grad)))
+        #print('Gradient: ',((grad)))
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
-        print('Parameters: ',((params)))
+        #print('Parameters: ',((params)))
         print('Objective function: ',(loss(params)))
 
-    print('Likelihood: ', fn(params)) # print final likelihood
+    print('Final likelihood: ', fn(params)) # print final likelihood
 
 
