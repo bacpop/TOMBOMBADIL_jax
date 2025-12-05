@@ -1,5 +1,5 @@
-# TOMBOMBADIL <img style="float: right" src="https://github.com/bacpop/TOMBOMBADIL_jax/blob/main/TOMBOMBADIL_logo.png" alt="" width="100"/>
-**T**ree-free **O**mega **M**apping **B**y **O**bserving **M**utations of **B**ases and **A**mino acids **D**istributed **I**nside **L**oci
+# TOMBOMBADIL
+**T**ree-free **O**mega **M**apping **B**y **O**bserving **M**utations of **B**ases and **A**mino acids **D**istributed **I**nside **L**oci <img style="float: right" src="https://github.com/bacpop/TOMBOMBADIL_jax/blob/main/TOMBOMBADIL_logo.png" alt="" width="200"/>
 
 >    "Old Tom Bombadil is a merry fellow! Bright Blue his jacket is, and his boots are yellow!"
     —Tom Bombadil
