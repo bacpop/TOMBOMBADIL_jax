@@ -1,7 +1,7 @@
 # TOMBOMBADIL
-**T**ree-free **O**mega **M**apping **B**y **O**bserving **M**utations of **B**ases and **A**mino acids **D**istributed **I**nside **L**oci <img style="float: right" src="https://github.com/bacpop/TOMBOMBADIL_jax/blob/main/TOMBOMBADIL_logo.png" alt="" width="200"/>
+**T**ree-free **O**mega **M**apping **B**y **O**bserving **M**utations of **B**ases and **A**mino acids **D**istributed **I**nside **L**oci 
 
->    "Old Tom Bombadil is a merry fellow! Bright Blue his jacket is, and his boots are yellow!"
+>    "Old Tom Bombadil is a merry fellow! Bright Blue his jacket is, and his boots are yellow!" <img style="float: right" src="https://github.com/bacpop/TOMBOMBADIL_jax/blob/main/TOMBOMBADIL_logo.png" alt="" width="200"/>
     —Tom Bombadil
 
 # TOMBOMBADIL - method for estimating dN/dS directly from alignments
