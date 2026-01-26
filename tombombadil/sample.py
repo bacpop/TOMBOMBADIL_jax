@@ -122,9 +122,13 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     X[15,:] = 4
     X[47,:] = 19
     col = 0
+    X = np.zeros((61,10))
+    X[15,:] = 4
+    X[47,:] = 19
+    col = 0
     N, l, log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
-    print("X",X)
+    #print("X",X)
 
     logging.info("Compiling model...") # jax first compiles code
 
@@ -140,7 +144,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
-        print('losses: ',losses)
+        #print('losses: ',losses)
         return jnp.mean(losses)
     
     # TODO: set threads/device/optim options
@@ -150,7 +154,6 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     # 6 parameters of GTR matrix, theta, omega
     #params = jnp.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
     #params = jnp.array([1, 1, 1, 1, 1, 1, 0.5, 0.5]) # define start parameters for optimization
-    #params = jnp.array([1,1,1,1,1,1,0.5,jnp.zeros(10)]) # fix to 10 for now
     params = { # define parameters as dictionary to allow flexible (data-informed)size for omega
         "alpha": jnp.array(1.0, dtype=jnp.float32),
         "beta": jnp.array(1.0, dtype=jnp.float32),
@@ -159,15 +162,33 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         "epsilon": jnp.array(1.0, dtype=jnp.float32),
         "eta": jnp.array(1.0, dtype=jnp.float32),
         "theta": jnp.array(0.5, dtype=jnp.float32),
-        "omega": jnp.repeat(0.5, jnp.size(X, axis=1)),
+        "omega": jnp.repeat(jnp.array(0.5, dtype=jnp.float32), jnp.size(X, axis=1)),
     }
+    print('Parameters: ',((params)))
 
     #params = jnp.array([0, 0, 0, 0, 0, 0, -0.6931472, -0.6931472]) # used this in comibnation of the x = jnp.exp(x) in fn(x) - transformation of parameters but might not be necessary?
 
     #solver = optax.adabelief(learning_rate=0.003) # adabelief optimizer
     #solver = optax.adam(learning_rate=0.0000001) # adam optimizer
-    solver = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-2)) # define optimizer (adam, with clipping)
-    
+    #solver = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-2)) # define optimizer (adam, with clipping)
+    solver = optax.multi_transform(
+    {
+        "vec": optax.adam(1e-9),
+        "scalar": optax.adam(1e-2),
+    },
+    param_labels={
+        "omega": "vec",
+        "alpha": "scalar",
+        "beta": "scalar",
+        "gamma": "scalar",
+        "delta": "scalar",
+        "epsilon": "scalar",
+        "eta": "scalar",
+        "theta": "scalar",
+        "omega": "scalar",
+    },
+)
+
     def loss(p): return -fn(p) # define loss function (will be minimized that is why it must be -fn(p))
     
     logging.info("Fitting model...")
@@ -177,7 +198,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         #print('Gradient: ',((grad)))
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
-        #print('Parameters: ',((params)))
+        print('updates: ',((updates)))
+        print('Parameters: ',((params)))
         print('Objective function: ',(loss(params)))
 
     print('Final likelihood: ', fn(params)) # print final likelihood
