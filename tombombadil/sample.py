@@ -51,7 +51,7 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     #print(pimult)
     #A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix
     #A = build_GTR(1, 1, 1, 1, 1, 1, 1, pimat, pimult) # same as NY98?
-    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # 61x61 subst rate matrix # better than fixing omega to 1?
+    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # 61x61 subst rate matrix
     #print(A) # is all zeros at the moment
     #print(pi_eq)
     #print(jnp.diagonal(A))
@@ -60,7 +60,7 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     # Calculate substitution rate matrix
     scale = (mu / 2.0) / meanrate
 
-    alpha = gen_alpha(omega, A, pimat, pimult, pimatinv, scale) # does alpha have the right dimensions? I thought it would need to be a vector? or maybe it is just missing values? everything seems to be zero except diagonal
+    alpha = gen_alpha(omega, A, pimat, pimult, pimatinv, scale)
     #print('alpha: ',alpha)
     #print("obs_vec: ", obs_vec)
     #print("N: ", N)
@@ -111,11 +111,20 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     # l is length of alignment
 
     logging.info("Compiling model...") # jax first compiles code
+
+    batched_loss = jax.vmap(
+    model,
+    in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, None, 0)  # map over matrices + data
+    )
+
     #def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
     def fn(x): 
         #x = jnp.exp(x)
         #print('x: ',x)
-        return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
+        #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
+        #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
+        losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
+        return jnp.mean(losses)
     
     # TODO: set threads/device/optim options
     # TODO: work for multiple codons
@@ -123,7 +132,19 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     # For now: [alpha, beta, gamma, delta, epsilon, eta, theta, omega]
     # 6 parameters of GTR matrix, theta, omega
     #params = jnp.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
-    params = jnp.array([1, 1, 1, 1, 1, 1, 0.5, 0.5]) # define start parameters for optimization
+    #params = jnp.array([1, 1, 1, 1, 1, 1, 0.5, 0.5]) # define start parameters for optimization
+    #params = jnp.array([1,1,1,1,1,1,0.5,jnp.zeros(10)]) # fix to 10 for now
+    params = {
+        "alpha": jnp.array(1.0, dtype=jnp.float32),
+        "beta": jnp.array(1.0, dtype=jnp.float32),
+        "gamma": jnp.array(1.0, dtype=jnp.float32),
+        "delta": jnp.array(1.0, dtype=jnp.float32),
+        "epsilon": jnp.array(1.0, dtype=jnp.float32),
+        "eta": jnp.array(1.0, dtype=jnp.float32),
+        "theta": jnp.array(0.5, dtype=jnp.float32),
+        "omega": jnp.zeros(len(X), dtype=jnp.float32),
+    }
+
     #params = jnp.array([0, 0, 0, 0, 0, 0, -0.6931472, -0.6931472]) # used this in comibnation of the x = jnp.exp(x) in fn(x) - transformation of parameters but might not be necessary?
 
     #solver = optax.adabelief(learning_rate=0.003) # adabelief optimizer
