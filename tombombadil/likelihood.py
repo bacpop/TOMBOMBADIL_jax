@@ -48,10 +48,12 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     for i in range(61):
         m_AB = m_AB.at[:,i].set(jnp.true_divide(m_AB[:,i], m_AB[i,i]))
         m_AB = m_AB.at[i,i].set(1.0e-06)
-        for j in range(61):
-            if m_AB[i,j] < 0: 
-                m_AB = m_AB.at[i,j].set(1.0e-06)
+    #    for j in range(61):
+    #        if m_AB[i,j] < 0: 
+    #            m_AB = m_AB.at[i,j].set(1.0e-06)
     
+    m_AB = jnp.where(m_AB < 0, 1.0e-6, m_AB) # better with jax because if can lead to error "Attempted boolean conversion of traced array with shape bool[]"
+
     #plt.matshow(m_AB)
     #plt.show()
     m_AB = m_AB.T

@@ -27,9 +27,9 @@ def my_dirichlet_multinomial_logpmf(x, a):
     #print("term3",term3)
     #print("x",x)
     #print("a",a)
-    jax.debug.print("x = {x}", x=x)
-    jax.debug.print("a = {a}", a=a)
-    jax.debug.print("a = {a}", a=a)
+    #jax.debug.print("x = {x}", x=x)
+    #jax.debug.print("a = {a}", a=a)
+    #jax.debug.print("a = {a}", a=a)
     #test = gammaln(x)
     #jax.debug.print("test = {test}", test=test)
     #jax.debug.print("term3 = {term3}", term3=term3)
@@ -85,7 +85,7 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     #print('log_prob: ',log_prob)
     #jax.debug.print("obs_vec = {obs_vec}", obs_vec=obs_vec)
     #jax.debug.print("alpha = {alpha}", alpha=alpha)
-    jax.debug.print("log_prob = {log_prob}", log_prob=log_prob)
+    #jax.debug.print("log_prob = {log_prob}", log_prob=log_prob)
     #print('log_prop_pi',log_prob + log_pi)
     #print('logsumexp_prop_pi',special.logsumexp(log_prob + log_pi, axis=0))
     return special.logsumexp(log_prob + log_pi, axis=0) # check that these go in as different arguments
@@ -159,7 +159,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         "epsilon": jnp.array(1.0, dtype=jnp.float32),
         "eta": jnp.array(1.0, dtype=jnp.float32),
         "theta": jnp.array(0.5, dtype=jnp.float32),
-        "omega": jnp.zeros(jnp.size(X, axis=1), dtype=jnp.float32),
+        "omega": jnp.repeat(0.5, jnp.size(X, axis=1)),
     }
 
     #params = jnp.array([0, 0, 0, 0, 0, 0, -0.6931472, -0.6931472]) # used this in comibnation of the x = jnp.exp(x) in fn(x) - transformation of parameters but might not be necessary?
