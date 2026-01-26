@@ -25,6 +25,14 @@ def my_dirichlet_multinomial_logpmf(x, a):
     term3 = jnp.sum(gammaln(x + a) - (gammaln(a)), axis=-1)
 
     #print("term3",term3)
+    #print("x",x)
+    #print("a",a)
+    jax.debug.print("x = {x}", x=x)
+    jax.debug.print("a = {a}", a=a)
+    jax.debug.print("a = {a}", a=a)
+    #test = gammaln(x)
+    #jax.debug.print("test = {test}", test=test)
+    #jax.debug.print("term3 = {term3}", term3=term3)
 
     return term1 + term2 + term3 # gives 1407.2288
 
@@ -75,6 +83,9 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     
     #print("log_prob_shape",log_prob.shape)
     #print('log_prob: ',log_prob)
+    #jax.debug.print("obs_vec = {obs_vec}", obs_vec=obs_vec)
+    #jax.debug.print("alpha = {alpha}", alpha=alpha)
+    jax.debug.print("log_prob = {log_prob}", log_prob=log_prob)
     #print('log_prop_pi',log_prob + log_pi)
     #print('logsumexp_prop_pi',special.logsumexp(log_prob + log_pi, axis=0))
     return special.logsumexp(log_prob + log_pi, axis=0) # check that these go in as different arguments
@@ -107,14 +118,19 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     X[47,7] = 19
     #X[15,7] = 4
     #X[47,7] = 19
+    X = np.zeros((61,1))
+    X[15,:] = 4
+    X[47,:] = 19
+    col = 0
     N, l, log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
+    print("X",X)
 
     logging.info("Compiling model...") # jax first compiles code
 
     batched_loss = jax.vmap(
-    model,
-    in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, None, 0)  # map over matrices + data
+        model,
+        in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, None, 1)  # map over matrices + data
     )
 
     #def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
@@ -124,6 +140,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
+        print('losses: ',losses)
         return jnp.mean(losses)
     
     # TODO: set threads/device/optim options
@@ -134,7 +151,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #params = jnp.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
     #params = jnp.array([1, 1, 1, 1, 1, 1, 0.5, 0.5]) # define start parameters for optimization
     #params = jnp.array([1,1,1,1,1,1,0.5,jnp.zeros(10)]) # fix to 10 for now
-    params = {
+    params = { # define parameters as dictionary to allow flexible (data-informed)size for omega
         "alpha": jnp.array(1.0, dtype=jnp.float32),
         "beta": jnp.array(1.0, dtype=jnp.float32),
         "gamma": jnp.array(1.0, dtype=jnp.float32),
@@ -142,7 +159,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         "epsilon": jnp.array(1.0, dtype=jnp.float32),
         "eta": jnp.array(1.0, dtype=jnp.float32),
         "theta": jnp.array(0.5, dtype=jnp.float32),
-        "omega": jnp.zeros(len(X), dtype=jnp.float32),
+        "omega": jnp.zeros(jnp.size(X, axis=1), dtype=jnp.float32),
     }
 
     #params = jnp.array([0, 0, 0, 0, 0, 0, -0.6931472, -0.6931472]) # used this in comibnation of the x = jnp.exp(x) in fn(x) - transformation of parameters but might not be necessary?
