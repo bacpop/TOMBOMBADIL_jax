@@ -173,8 +173,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #solver = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-2)) # define optimizer (adam, with clipping)
     solver = optax.multi_transform(
     {
-        "vec": optax.adam(1e-9),
-        "scalar": optax.adam(1e-2),
+        "vec": optax.adam(1e-5),
+        "scalar": optax.adam(1e-3),
     },
     param_labels={
         "omega": "vec",

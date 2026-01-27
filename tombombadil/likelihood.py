@@ -1,4 +1,5 @@
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -9,6 +10,16 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #print("A", A[7, ])
     mutmat = update_GTR(A, omega, pimult)
     #print("mutmat", mutmat)
+
+    eps = 1e-4
+    mutmat = mutmat + eps * jnp.eye(mutmat.shape[-1]) # add jitter to diagonal (avoids repeated eigenvalues --> eigenvectors are not uniquely defined --> gradient of eigenvectors is undefined / discontinuous --> nans in optimizer)
+    # supposedly does not affect the model much (--> might need to confirm this later)
+
+    #eigvals = jnp.linalg.eigvalsh(mutmat)
+    #jax.debug.print(
+    #    "eigvals[3] = {e}",
+    #    e=eigvals[3],
+    #)
 
     w, v = jnp.linalg.eigh(mutmat, UPLO='U') # computes eigen vectors (v) and values (w)
     #print(f"w.shape={w.shape}")
