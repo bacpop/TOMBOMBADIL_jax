@@ -113,19 +113,19 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
     # add for loop later
     #X[:,7] = jnp.zeros(61)
-    X[:,7] = np.zeros(61)
-    X[15,7] = 4
-    X[47,7] = 19
+    #X[:,7] = np.zeros(61)
     #X[15,7] = 4
     #X[47,7] = 19
-    X = np.zeros((61,1))
-    X[15,:] = 4
-    X[47,:] = 19
-    col = 0
-    X = np.zeros((61,10))
-    X[15,:] = 4
-    X[47,:] = 19
-    col = 0
+    #X[15,7] = 4
+    #X[47,7] = 19
+    #X = np.zeros((61,1))
+    #X[15,:] = 4
+    #X[47,:] = 19
+    #col = 0
+    #X = np.zeros((61,10))
+    #X[15,:] = 4
+    #X[47,:] = 19
+    #col = 0
     N, l, log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
     #print("X",X)
