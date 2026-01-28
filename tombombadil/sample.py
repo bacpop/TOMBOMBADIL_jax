@@ -164,7 +164,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         "theta": jnp.array(0.5, dtype=jnp.float32),
         "omega": jnp.repeat(jnp.array(0.5, dtype=jnp.float32), jnp.size(X, axis=1)),
     }
-    print('Parameters: ',((params)))
+    #print('Parameters: ',((params)))
 
     #params = jnp.array([0, 0, 0, 0, 0, 0, -0.6931472, -0.6931472]) # used this in comibnation of the x = jnp.exp(x) in fn(x) - transformation of parameters but might not be necessary?
 
@@ -193,15 +193,16 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     
     logging.info("Fitting model...")
     opt_state = solver.init(params)
-    for _ in range(20): # define number of iterations of optimizer
+    for _ in range(50): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         #print('Gradient: ',((grad)))
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
-        print('updates: ',((updates)))
-        print('Parameters: ',((params)))
+        #print('updates: ',((updates)))
+        #print('Parameters: ',((params)))
         print('Objective function: ',(loss(params)))
 
     print('Final likelihood: ', fn(params)) # print final likelihood
+    print('Final parameters: ',((params)))
 
 
