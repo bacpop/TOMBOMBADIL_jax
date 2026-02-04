@@ -13,9 +13,10 @@ import optax
 from .gtr import build_GTR
 from .likelihood import gen_alpha
 
-from jax import profiler
-profiler.start_trace("/tmp/jax-trace")
-from jax.profiler import StepTraceAnnotation
+#from jax import profiler
+#profiler.start_trace("/tmp/jax-trace")
+#from jax.profiler import StepTraceAnnotation
+import jax.profiler
 
 def my_dirichlet_multinomial_logpmf(x, a):
     x = jnp.asarray(x)
@@ -197,20 +198,24 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     
     logging.info("Fitting model...")
     opt_state = solver.init(params)
-    for _ in range(5): # define number of iterations of optimizer
-        with StepTraceAnnotation("compute gradient"):
-            grad = jax.grad(loss)(params) # compute gradient
-        #print('Gradient: ',((grad)))
-        with StepTraceAnnotation("update states"):
-            updates, opt_state = solver.update(grad, opt_state, params) # update states
-        with StepTraceAnnotation("update parameters"):
-            params = optax.apply_updates(params, updates) # update parameters
-        #print('updates: ',((updates)))
-        #print('Parameters: ',((params)))
-        print('Objective function: ',(loss(params)))
 
-        jax.block_until_ready(params)
-    jax.profiler.stop_trace()
+    # executing these steps once so they are compiled -- cleaner for profiling (?)
+    grad = jax.grad(loss)(params)
+    updates, opt_state = solver.update(grad, opt_state, params)
+    params = optax.apply_updates(params, updates)
+    with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
+        for _ in range(5): # define number of iterations of optimizer
+            grad = jax.grad(loss)(params) # compute gradient
+            #print('Gradient: ',((grad)))
+            updates, opt_state = solver.update(grad, opt_state, params) # update states
+            params = optax.apply_updates(params, updates) # update parameters
+            #print('updates: ',((updates)))
+            #print('Parameters: ',((params)))
+            print('Objective function: ',(loss(params)))
+
+            #jax.block_until_ready(params)
+        #jax.profiler.stop_trace()
+        grad.block_until_ready()
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     print('Final parameters: ',((params)))
