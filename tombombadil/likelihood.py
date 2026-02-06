@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from .gtr import update_GTR
 
-
+@jax.profiler.annotate_function
 def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #print("A", A[7, ])
     mutmat = update_GTR(A, omega, pimult)

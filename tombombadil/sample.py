@@ -42,6 +42,7 @@ def my_dirichlet_multinomial_logpmf(x, a):
     return term1 + term2 + term3 # gives 1407.2288
 
 # This version is adapted from the scipy implementation
+@jax.profiler.annotate_function
 def my_dirichlet_multinomial_logpmf_2(x, a):
     x = jnp.asarray(x)
     a = jnp.asarray(a)
@@ -57,7 +58,7 @@ def my_dirichlet_multinomial_logpmf_2(x, a):
     # out = jnp.place(out, N != x.sum(axis=-1), -jnp.inf, inplace=False)
 
     return out
-
+@jax.profiler.annotate_function
 def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, pimat, pimatinv, pimult, obs_vec):
     # Calculate substitution rate matrix under neutrality
     #print(pimat)
@@ -143,6 +144,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     )
 
     #def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
+    @jax.profiler.annotate_function
     def fn(x): 
         #x = jnp.exp(x)
         #print('x: ',x)
@@ -205,17 +207,20 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     params = optax.apply_updates(params, updates)
     with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
         for _ in range(5): # define number of iterations of optimizer
-            grad = jax.grad(loss)(params) # compute gradient
+            with jax.profiler.TraceAnnotation("grad"):
+                grad = jax.grad(loss)(params) # compute gradient
             #print('Gradient: ',((grad)))
-            updates, opt_state = solver.update(grad, opt_state, params) # update states
-            params = optax.apply_updates(params, updates) # update parameters
+            with jax.profiler.TraceAnnotation("update_states"):
+                updates, opt_state = solver.update(grad, opt_state, params) # update states
+            with jax.profiler.TraceAnnotation("update_params"):
+                params = optax.apply_updates(params, updates) # update parameters
             #print('updates: ',((updates)))
             #print('Parameters: ',((params)))
             print('Objective function: ',(loss(params)))
 
             #jax.block_until_ready(params)
         #jax.profiler.stop_trace()
-        grad.block_until_ready()
+        params.block_until_ready()
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     print('Final parameters: ',((params)))

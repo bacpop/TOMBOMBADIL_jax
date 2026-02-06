@@ -565,548 +565,1083 @@ def diag_update(M, pimult):
         M = M.at[i, i].set(-jnp.dot(M[i, :], pimult[i, :]))
     return M
 
-#@jit
+@jit
 def build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult):
-    M = jnp.zeros((61, 61))
+  M = jnp.zeros((61, 61))
+  IDX = jnp.array([ # define indexes for building GTR matrix
+    [0, 1],
+    [0, 2],
+    [0, 3],
+    [0, 4],
+    [0, 8],
+    [0, 10],
+    [0, 13],
+    [0, 29],
+    [0, 45],
+    [1, 0],
+    [1, 2],
+    [1, 3],
+    [1, 5],
+    [1, 9],
+    [1, 11],
+    [1, 14],
+    [1, 30],
+    [1, 46],
+    [2, 0],
+    [2, 1],
+    [2, 3],
+    [2, 6],
+    [2, 15],
+    [2, 31],
+    [2, 47],
+    [3, 0],
+    [3, 1],
+    [3, 2],
+    [3, 7],
+    [3, 12],
+    [3, 16],
+    [3, 32],
+    [3, 48],
+    [4, 0],
+    [4, 5],
+    [4, 6],
+    [4, 7],
+    [4, 8],
+    [4, 10],
+    [4, 17],
+    [4, 33],
+    [4, 49],
+    [5, 1],
+    [5, 4],
+    [5, 6],
+    [5, 7],
+    [5, 9],
+    [5, 11],
+    [5, 18],
+    [5, 34],
+    [5, 50],
+    [6, 2],
+    [6, 4],
+    [6, 5],
+    [6, 7],
+    [6, 19],
+    [6, 35],
+    [6, 51],
+    [7, 3],
+    [7, 4],
+    [7, 5],
+    [7, 6],
+    [7, 12],
+    [7, 20],
+    [7, 36],
+    [7, 52],
+    [8, 0],
+    [8, 4],
+    [8, 9],
+    [8, 10],
+    [8, 21],
+    [8, 37],
+    [8, 53],
+    [9, 1],
+    [9, 5],
+    [9, 8],
+    [9, 11],
+    [9, 22],
+    [9, 38],
+    [9, 54],
+    [10, 0],
+    [10, 4],
+    [10, 8],
+    [10, 11],
+    [10, 12],
+    [10, 25],
+    [10, 41],
+    [10, 57],
+    [11, 1],
+    [11, 5],
+    [11, 9],
+    [11, 10],
+    [11, 12],
+    [11, 26],
+    [11, 42],
+    [11, 58],
+    [12, 3],
+    [12, 7],
+    [12, 10],
+    [12, 11],
+    [12, 28],
+    [12, 44],
+    [12, 60],
+    [13, 0],
+    [13, 14],
+    [13, 15],
+    [13, 16],
+    [13, 17],
+    [13, 21],
+    [13, 25],
+    [13, 29],
+    [13, 45],
+    [14, 1],
+    [14, 13],
+    [14, 15],
+    [14, 16],
+    [14, 18],
+    [14, 22],
+    [14, 26],
+    [14, 30],
+    [14, 46],
+    [15, 2],
+    [15, 13],
+    [15, 14],
+    [15, 16],
+    [15, 19],
+    [15, 23],
+    [15, 27],
+    [15, 31],
+    [15, 47],
+    [16, 3],
+    [16, 13],
+    [16, 14],
+    [16, 15],
+    [16, 20],
+    [16, 24],
+    [16, 28],
+    [16, 32],
+    [16, 48],
+    [17, 4],
+    [17, 13],
+    [17, 18],
+    [17, 19],
+    [17, 20],
+    [17, 21],
+    [17, 25],
+    [17, 33],
+    [17, 49],
+    [18, 5],
+    [18, 14],
+    [18, 17],
+    [18, 19],
+    [18, 20],
+    [18, 22],
+    [18, 26],
+    [18, 34],
+    [18, 50],
+    [19, 6],
+    [19, 15],
+    [19, 17],
+    [19, 18],
+    [19, 20],
+    [19, 23],
+    [19, 27],
+    [19, 35],
+    [19, 51],
+    [20, 7],
+    [20, 16],
+    [20, 17],
+    [20, 18],
+    [20, 19],
+    [20, 24],
+    [20, 28],
+    [20, 36],
+    [20, 52],
+    [21, 8],
+    [21, 13],
+    [21, 17],
+    [21, 22],
+    [21, 23],
+    [21, 24],
+    [21, 25],
+    [21, 37],
+    [21, 53],
+    [22, 9],
+    [22, 14],
+    [22, 18],
+    [22, 21],
+    [22, 23],
+    [22, 24],
+    [22, 26],
+    [22, 38],
+    [22, 54],
+    [23, 15],
+    [23, 19],
+    [23, 21],
+    [23, 22],
+    [23, 24],
+    [23, 27],
+    [23, 39],
+    [23, 55],
+    [24, 16],
+    [24, 20],
+    [24, 21],
+    [24, 22],
+    [24, 23],
+    [24, 28],
+    [24, 40],
+    [24, 56],
+    [25, 10],
+    [25, 13],
+    [25, 17],
+    [25, 21],
+    [25, 26],
+    [25, 27],
+    [25, 28],
+    [25, 41],
+    [25, 57],
+    [26, 11],
+    [26, 14],
+    [26, 18],
+    [26, 22],
+    [26, 25],
+    [26, 27],
+    [26, 28],
+    [26, 42],
+    [26, 58],
+    [27, 15],
+    [27, 19],
+    [27, 23],
+    [27, 25],
+    [27, 26],
+    [27, 28],
+    [27, 43],
+    [27, 59],
+    [28, 12],
+    [28, 16],
+    [28, 20],
+    [28, 24],
+    [28, 25],
+    [28, 26],
+    [28, 27],
+    [28, 44],
+    [28, 60],
+    [29, 0],
+    [29, 13],
+    [29, 30],
+    [29, 31],
+    [29, 32],
+    [29, 33],
+    [29, 37],
+    [29, 41],
+    [29, 45],
+    [30, 1],
+    [30, 14],
+    [30, 29],
+    [30, 31],
+    [30, 32],
+    [30, 34],
+    [30, 38],
+    [30, 42],
+    [30, 46],
+    [31, 2],
+    [31, 15],
+    [31, 29],
+    [31, 30],
+    [31, 32],
+    [31, 35],
+    [31, 39],
+    [31, 43],
+    [31, 47],
+    [32, 3],
+    [32, 16],
+    [32, 29],
+    [32, 30],
+    [32, 31],
+    [32, 36],
+    [32, 40],
+    [32, 44],
+    [32, 48],
+    [33, 4],
+    [33, 17],
+    [33, 29],
+    [33, 34],
+    [33, 35],
+    [33, 36],
+    [33, 37],
+    [33, 41],
+    [33, 49],
+    [34, 5],
+    [34, 18],
+    [34, 30],
+    [34, 33],
+    [34, 35],
+    [34, 36],
+    [34, 38],
+    [34, 42],
+    [34, 50],
+    [35, 6],
+    [35, 19],
+    [35, 31],
+    [35, 33],
+    [35, 34],
+    [35, 36],
+    [35, 39],
+    [35, 43],
+    [35, 51],
+    [36, 7],
+    [36, 20],
+    [36, 32],
+    [36, 33],
+    [36, 34],
+    [36, 35],
+    [36, 40],
+    [36, 44],
+    [36, 52],
+    [37, 8],
+    [37, 21],
+    [37, 29],
+    [37, 33],
+    [37, 38],
+    [37, 39],
+    [37, 40],
+    [37, 41],
+    [37, 53],
+    [38, 9],
+    [38, 22],
+    [38, 30],
+    [38, 34],
+    [38, 37],
+    [38, 39],
+    [38, 40],
+    [38, 42],
+    [38, 54],
+    [39, 23],
+    [39, 31],
+    [39, 35],
+    [39, 37],
+    [39, 38],
+    [39, 40],
+    [39, 43],
+    [39, 55],
+    [40, 24],
+    [40, 32],
+    [40, 36],
+    [40, 37],
+    [40, 38],
+    [40, 39],
+    [40, 44],
+    [40, 56],
+    [41, 10],
+    [41, 25],
+    [41, 29],
+    [41, 33],
+    [41, 37],
+    [41, 42],
+    [41, 43],
+    [41, 44],
+    [41, 57],
+    [42, 11],
+    [42, 26],
+    [42, 30],
+    [42, 34],
+    [42, 38],
+    [42, 41],
+    [42, 43],
+    [42, 44],
+    [42, 58],
+    [43, 27],
+    [43, 31],
+    [43, 35],
+    [43, 39],
+    [43, 41],
+    [43, 42],
+    [43, 44],
+    [43, 59],
+    [44, 12],
+    [44, 28],
+    [44, 32],
+    [44, 36],
+    [44, 40],
+    [44, 41],
+    [44, 42],
+    [44, 43],
+    [44, 60],
+    [45, 0],
+    [45, 13],
+    [45, 29],
+    [45, 46],
+    [45, 47],
+    [45, 48],
+    [45, 49],
+    [45, 53],
+    [45, 57],
+    [46, 1],
+    [46, 14],
+    [46, 30],
+    [46, 45],
+    [46, 47],
+    [46, 48],
+    [46, 50],
+    [46, 54],
+    [46, 58],
+    [47, 2],
+    [47, 15],
+    [47, 31],
+    [47, 45],
+    [47, 46],
+    [47, 48],
+    [47, 51],
+    [47, 55],
+    [47, 59],
+    [48, 3],
+    [48, 16],
+    [48, 32],
+    [48, 45],
+    [48, 46],
+    [48, 47],
+    [48, 52],
+    [48, 56],
+    [48, 60],
+    [49, 4],
+    [49, 17],
+    [49, 33],
+    [49, 45],
+    [49, 50],
+    [49, 51],
+    [49, 52],
+    [49, 53],
+    [49, 57],
+    [50, 5],
+    [50, 18],
+    [50, 34],
+    [50, 46],
+    [50, 49],
+    [50, 51],
+    [50, 52],
+    [50, 54],
+    [50, 58],
+    [51, 6],
+    [51, 19],
+    [51, 35],
+    [51, 47],
+    [51, 49],
+    [51, 50],
+    [51, 52],
+    [51, 55],
+    [51, 59],
+    [52, 7],
+    [52, 20],
+    [52, 36],
+    [52, 48],
+    [52, 49],
+    [52, 50],
+    [52, 51],
+    [52, 56],
+    [52, 60],
+    [53, 8],
+    [53, 21],
+    [53, 37],
+    [53, 45],
+    [53, 49],
+    [53, 54],
+    [53, 55],
+    [53, 56],
+    [53, 57],
+    [54, 9],
+    [54, 22],
+    [54, 38],
+    [54, 46],
+    [54, 50],
+    [54, 53],
+    [54, 55],
+    [54, 56],
+    [54, 58],
+    [55, 23],
+    [55, 39],
+    [55, 47],
+    [55, 51],
+    [55, 53],
+    [55, 54],
+    [55, 56],
+    [55, 59],
+    [56, 24],
+    [56, 40],
+    [56, 48],
+    [56, 52],
+    [56, 53],
+    [56, 54],
+    [56, 55],
+    [56, 60],
+    [57, 10],
+    [57, 25],
+    [57, 41],
+    [57, 45],
+    [57, 49],
+    [57, 53],
+    [57, 58],
+    [57, 59],
+    [57, 60],
+    [58, 11],
+    [58, 26],
+    [58, 42],
+    [58, 46],
+    [58, 50],
+    [58, 54],
+    [58, 57],
+    [58, 59],
+    [58, 60],
+    [59, 27],
+    [59, 43],
+    [59, 47],
+    [59, 51],
+    [59, 55],
+    [59, 57],
+    [59, 58],
+    [59, 60],
+    [60, 12],
+    [60, 28],
+    [60, 44],
+    [60, 48],
+    [60, 52],
+    [60, 56],
+    [60, 57],
+    [60, 58],
+    [60, 59],
+  ])
+  # split into rows and colum indexes
+  rows = IDX[:, 0] 
+  cols = IDX[:, 1]
 
-    M = M.at[0,1].set(eta)
-    M = M.at[0,2].set(gamma * omega)
-    M = M.at[0,3].set(epsilon * omega)
-    M = M.at[0,4].set(eta * omega)
-    M = M.at[0,8].set(gamma * omega)
-    M = M.at[0,10].set(epsilon * omega)
-    M = M.at[0,13].set(eta * omega)
-    M = M.at[0,29].set(gamma * omega)
-    M = M.at[0,45].set(epsilon * omega)
-    M = M.at[1,0].set(eta)
-    M = M.at[1,2].set(beta * omega)
-    M = M.at[1,3].set(delta * omega)
-    M = M.at[1,5].set(eta * omega)
-    M = M.at[1,9].set(gamma * omega)
-    M = M.at[1,11].set(epsilon * omega)
-    M = M.at[1,14].set(eta * omega)
-    M = M.at[1,30].set(gamma * omega)
-    M = M.at[1,46].set(epsilon * omega)
-    M = M.at[2,0].set(gamma * omega)
-    M = M.at[2,1].set(beta * omega)
-    M = M.at[2,3].set(alpha)
-    M = M.at[2,6].set(eta * omega)
-    M = M.at[2,15].set(eta)
-    M = M.at[2,31].set(gamma * omega)
-    M = M.at[2,47].set(epsilon * omega)
-    M = M.at[3,0].set(epsilon * omega)
-    M = M.at[3,1].set(delta * omega)
-    M = M.at[3,2].set(alpha)
-    M = M.at[3,7].set(eta * omega)
-    M = M.at[3,12].set(epsilon * omega)
-    M = M.at[3,16].set(eta)
-    M = M.at[3,32].set(gamma * omega)
-    M = M.at[3,48].set(epsilon * omega)
-    M = M.at[4,0].set(eta * omega)
-    M = M.at[4,5].set(eta)
-    M = M.at[4,6].set(gamma)
-    M = M.at[4,7].set(epsilon)
-    M = M.at[4,8].set(beta * omega)
-    M = M.at[4,10].set(delta * omega)
-    M = M.at[4,17].set(eta * omega)
-    M = M.at[4,33].set(gamma * omega)
-    M = M.at[4,49].set(epsilon * omega)
-    M = M.at[5,1].set(eta * omega)
-    M = M.at[5,4].set(eta)
-    M = M.at[5,6].set(beta)
-    M = M.at[5,7].set(delta)
-    M = M.at[5,9].set(beta * omega)
-    M = M.at[5,11].set(delta * omega)
-    M = M.at[5,18].set(eta * omega)
-    M = M.at[5,34].set(gamma * omega)
-    M = M.at[5,50].set(epsilon * omega)
-    M = M.at[6,2].set(eta * omega)
-    M = M.at[6,4].set(gamma)
-    M = M.at[6,5].set(beta)
-    M = M.at[6,7].set(alpha)
-    M = M.at[6,19].set(eta * omega)
-    M = M.at[6,35].set(gamma * omega)
-    M = M.at[6,51].set(epsilon * omega)
-    M = M.at[7,3].set(eta * omega)
-    M = M.at[7,4].set(epsilon)
-    M = M.at[7,5].set(delta)
-    M = M.at[7,6].set(alpha)
-    M = M.at[7,12].set(delta * omega)
-    M = M.at[7,20].set(eta * omega)
-    M = M.at[7,36].set(gamma * omega)
-    M = M.at[7,52].set(epsilon * omega)
-    M = M.at[8,0].set(gamma * omega)
-    M = M.at[8,4].set(beta * omega)
-    M = M.at[8,9].set(eta)
-    M = M.at[8,10].set(alpha * omega)
-    M = M.at[8,21].set(eta * omega)
-    M = M.at[8,37].set(gamma * omega)
-    M = M.at[8,53].set(epsilon * omega)
-    M = M.at[9,1].set(gamma * omega)
-    M = M.at[9,5].set(beta * omega)
-    M = M.at[9,8].set(eta)
-    M = M.at[9,11].set(alpha * omega)
-    M = M.at[9,22].set(eta * omega)
-    M = M.at[9,38].set(gamma * omega)
-    M = M.at[9,54].set(epsilon * omega)
-    M = M.at[10,0].set(epsilon * omega)
-    M = M.at[10,4].set(delta * omega)
-    M = M.at[10,8].set(alpha * omega)
-    M = M.at[10,11].set(eta)
-    M = M.at[10,12].set(epsilon * omega)
-    M = M.at[10,25].set(eta * omega)
-    M = M.at[10,41].set(gamma * omega)
-    M = M.at[10,57].set(epsilon * omega)
-    M = M.at[11,1].set(epsilon * omega)
-    M = M.at[11,5].set(delta * omega)
-    M = M.at[11,9].set(alpha * omega)
-    M = M.at[11,10].set(eta)
-    M = M.at[11,12].set(delta * omega)
-    M = M.at[11,26].set(eta * omega)
-    M = M.at[11,42].set(gamma * omega)
-    M = M.at[11,58].set(epsilon * omega)
-    M = M.at[12,3].set(epsilon * omega)
-    M = M.at[12,7].set(delta * omega)
-    M = M.at[12,10].set(epsilon * omega)
-    M = M.at[12,11].set(delta * omega)
-    M = M.at[12,28].set(eta * omega)
-    M = M.at[12,44].set(gamma * omega)
-    M = M.at[12,60].set(epsilon * omega)
-    M = M.at[13,0].set(eta * omega)
-    M = M.at[13,14].set(eta)
-    M = M.at[13,15].set(gamma)
-    M = M.at[13,16].set(epsilon)
-    M = M.at[13,17].set(eta * omega)
-    M = M.at[13,21].set(gamma * omega)
-    M = M.at[13,25].set(epsilon * omega)
-    M = M.at[13,29].set(beta * omega)
-    M = M.at[13,45].set(delta * omega)
-    M = M.at[14,1].set(eta * omega)
-    M = M.at[14,13].set(eta)
-    M = M.at[14,15].set(beta)
-    M = M.at[14,16].set(delta)
-    M = M.at[14,18].set(eta * omega)
-    M = M.at[14,22].set(gamma * omega)
-    M = M.at[14,26].set(epsilon * omega)
-    M = M.at[14,30].set(beta * omega)
-    M = M.at[14,46].set(delta * omega)
-    M = M.at[15,2].set(eta)
-    M = M.at[15,13].set(gamma)
-    M = M.at[15,14].set(beta)
-    M = M.at[15,16].set(alpha)
-    M = M.at[15,19].set(eta * omega)
-    M = M.at[15,23].set(gamma * omega)
-    M = M.at[15,27].set(epsilon * omega)
-    M = M.at[15,31].set(beta * omega)
-    M = M.at[15,47].set(delta * omega)
-    M = M.at[16,3].set(eta)
-    M = M.at[16,13].set(epsilon)
-    M = M.at[16,14].set(delta)
-    M = M.at[16,15].set(alpha)
-    M = M.at[16,20].set(eta * omega)
-    M = M.at[16,24].set(gamma * omega)
-    M = M.at[16,28].set(epsilon * omega)
-    M = M.at[16,32].set(beta * omega)
-    M = M.at[16,48].set(delta * omega)
-    M = M.at[17,4].set(eta * omega)
-    M = M.at[17,13].set(eta * omega)
-    M = M.at[17,18].set(eta)
-    M = M.at[17,19].set(gamma)
-    M = M.at[17,20].set(epsilon)
-    M = M.at[17,21].set(beta * omega)
-    M = M.at[17,25].set(delta * omega)
-    M = M.at[17,33].set(beta * omega)
-    M = M.at[17,49].set(delta * omega)
-    M = M.at[18,5].set(eta * omega)
-    M = M.at[18,14].set(eta * omega)
-    M = M.at[18,17].set(eta)
-    M = M.at[18,19].set(beta)
-    M = M.at[18,20].set(delta)
-    M = M.at[18,22].set(beta * omega)
-    M = M.at[18,26].set(delta * omega)
-    M = M.at[18,34].set(beta * omega)
-    M = M.at[18,50].set(delta * omega)
-    M = M.at[19,6].set(eta * omega)
-    M = M.at[19,15].set(eta * omega)
-    M = M.at[19,17].set(gamma)
-    M = M.at[19,18].set(beta)
-    M = M.at[19,20].set(alpha)
-    M = M.at[19,23].set(beta * omega)
-    M = M.at[19,27].set(delta * omega)
-    M = M.at[19,35].set(beta * omega)
-    M = M.at[19,51].set(delta * omega)
-    M = M.at[20,7].set(eta * omega)
-    M = M.at[20,16].set(eta * omega)
-    M = M.at[20,17].set(epsilon)
-    M = M.at[20,18].set(delta)
-    M = M.at[20,19].set(alpha)
-    M = M.at[20,24].set(beta * omega)
-    M = M.at[20,28].set(delta * omega)
-    M = M.at[20,36].set(beta * omega)
-    M = M.at[20,52].set(delta * omega)
-    M = M.at[21,8].set(eta * omega)
-    M = M.at[21,13].set(gamma * omega)
-    M = M.at[21,17].set(beta * omega)
-    M = M.at[21,22].set(eta)
-    M = M.at[21,23].set(gamma * omega)
-    M = M.at[21,24].set(epsilon * omega)
-    M = M.at[21,25].set(alpha * omega)
-    M = M.at[21,37].set(beta * omega)
-    M = M.at[21,53].set(delta * omega)
-    M = M.at[22,9].set(eta * omega)
-    M = M.at[22,14].set(gamma * omega)
-    M = M.at[22,18].set(beta * omega)
-    M = M.at[22,21].set(eta)
-    M = M.at[22,23].set(beta * omega)
-    M = M.at[22,24].set(delta * omega)
-    M = M.at[22,26].set(alpha * omega)
-    M = M.at[22,38].set(beta * omega)
-    M = M.at[22,54].set(delta * omega)
-    M = M.at[23,15].set(gamma * omega)
-    M = M.at[23,19].set(beta * omega)
-    M = M.at[23,21].set(gamma * omega)
-    M = M.at[23,22].set(beta * omega)
-    M = M.at[23,24].set(alpha)
-    M = M.at[23,27].set(alpha * omega)
-    M = M.at[23,39].set(beta * omega)
-    M = M.at[23,55].set(delta * omega)
-    M = M.at[24,16].set(gamma * omega)
-    M = M.at[24,20].set(beta * omega)
-    M = M.at[24,21].set(epsilon * omega)
-    M = M.at[24,22].set(delta * omega)
-    M = M.at[24,23].set(alpha)
-    M = M.at[24,28].set(alpha * omega)
-    M = M.at[24,40].set(beta * omega)
-    M = M.at[24,56].set(delta * omega)
-    M = M.at[25,10].set(eta * omega)
-    M = M.at[25,13].set(epsilon * omega)
-    M = M.at[25,17].set(delta * omega)
-    M = M.at[25,21].set(alpha * omega)
-    M = M.at[25,26].set(eta)
-    M = M.at[25,27].set(gamma)
-    M = M.at[25,28].set(epsilon)
-    M = M.at[25,41].set(beta * omega)
-    M = M.at[25,57].set(delta * omega)
-    M = M.at[26,11].set(eta * omega)
-    M = M.at[26,14].set(epsilon * omega)
-    M = M.at[26,18].set(delta * omega)
-    M = M.at[26,22].set(alpha * omega)
-    M = M.at[26,25].set(eta)
-    M = M.at[26,27].set(beta)
-    M = M.at[26,28].set(delta)
-    M = M.at[26,42].set(beta * omega)
-    M = M.at[26,58].set(delta * omega)
-    M = M.at[27,15].set(epsilon * omega)
-    M = M.at[27,19].set(delta * omega)
-    M = M.at[27,23].set(alpha * omega)
-    M = M.at[27,25].set(gamma)
-    M = M.at[27,26].set(beta)
-    M = M.at[27,28].set(alpha)
-    M = M.at[27,43].set(beta)
-    M = M.at[27,59].set(delta * omega)
-    M = M.at[28,12].set(eta * omega)
-    M = M.at[28,16].set(epsilon * omega)
-    M = M.at[28,20].set(delta * omega)
-    M = M.at[28,24].set(alpha * omega)
-    M = M.at[28,25].set(epsilon)
-    M = M.at[28,26].set(delta)
-    M = M.at[28,27].set(alpha)
-    M = M.at[28,44].set(beta)
-    M = M.at[28,60].set(delta * omega)
-    M = M.at[29,0].set(gamma * omega)
-    M = M.at[29,13].set(beta * omega)
-    M = M.at[29,30].set(eta)
-    M = M.at[29,31].set(gamma)
-    M = M.at[29,32].set(epsilon * omega)
-    M = M.at[29,33].set(eta * omega)
-    M = M.at[29,37].set(gamma * omega)
-    M = M.at[29,41].set(epsilon * omega)
-    M = M.at[29,45].set(alpha * omega)
-    M = M.at[30,1].set(gamma * omega)
-    M = M.at[30,14].set(beta * omega)
-    M = M.at[30,29].set(eta)
-    M = M.at[30,31].set(beta)
-    M = M.at[30,32].set(delta * omega)
-    M = M.at[30,34].set(eta * omega)
-    M = M.at[30,38].set(gamma * omega)
-    M = M.at[30,42].set(epsilon * omega)
-    M = M.at[30,46].set(alpha * omega)
-    M = M.at[31,2].set(gamma * omega)
-    M = M.at[31,15].set(beta * omega)
-    M = M.at[31,29].set(gamma)
-    M = M.at[31,30].set(beta)
-    M = M.at[31,32].set(alpha * omega)
-    M = M.at[31,35].set(eta * omega)
-    M = M.at[31,39].set(gamma * omega)
-    M = M.at[31,43].set(epsilon * omega)
-    M = M.at[31,47].set(alpha * omega)
-    M = M.at[32,3].set(gamma * omega)
-    M = M.at[32,16].set(beta * omega)
-    M = M.at[32,29].set(epsilon * omega)
-    M = M.at[32,30].set(delta * omega)
-    M = M.at[32,31].set(alpha * omega)
-    M = M.at[32,36].set(eta * omega)
-    M = M.at[32,40].set(gamma * omega)
-    M = M.at[32,44].set(epsilon * omega)
-    M = M.at[32,48].set(alpha * omega)
-    M = M.at[33,4].set(gamma * omega)
-    M = M.at[33,17].set(beta * omega)
-    M = M.at[33,29].set(eta * omega)
-    M = M.at[33,34].set(eta)
-    M = M.at[33,35].set(gamma)
-    M = M.at[33,36].set(epsilon)
-    M = M.at[33,37].set(beta * omega)
-    M = M.at[33,41].set(delta * omega)
-    M = M.at[33,49].set(alpha * omega)
-    M = M.at[34,5].set(gamma * omega)
-    M = M.at[34,18].set(beta * omega)
-    M = M.at[34,30].set(eta * omega)
-    M = M.at[34,33].set(eta)
-    M = M.at[34,35].set(beta)
-    M = M.at[34,36].set(delta)
-    M = M.at[34,38].set(beta * omega)
-    M = M.at[34,42].set(delta * omega)
-    M = M.at[34,50].set(alpha * omega)
-    M = M.at[35,6].set(gamma * omega)
-    M = M.at[35,19].set(beta * omega)
-    M = M.at[35,31].set(eta * omega)
-    M = M.at[35,33].set(gamma)
-    M = M.at[35,34].set(beta)
-    M = M.at[35,36].set(alpha)
-    M = M.at[35,39].set(beta * omega)
-    M = M.at[35,43].set(delta * omega)
-    M = M.at[35,51].set(alpha * omega)
-    M = M.at[36,7].set(gamma * omega)
-    M = M.at[36,20].set(beta * omega)
-    M = M.at[36,32].set(eta * omega)
-    M = M.at[36,33].set(epsilon)
-    M = M.at[36,34].set(delta)
-    M = M.at[36,35].set(alpha)
-    M = M.at[36,40].set(beta * omega)
-    M = M.at[36,44].set(delta * omega)
-    M = M.at[36,52].set(alpha * omega)
-    M = M.at[37,8].set(gamma * omega)
-    M = M.at[37,21].set(beta * omega)
-    M = M.at[37,29].set(gamma * omega)
-    M = M.at[37,33].set(beta * omega)
-    M = M.at[37,38].set(eta)
-    M = M.at[37,39].set(gamma * omega)
-    M = M.at[37,40].set(epsilon * omega)
-    M = M.at[37,41].set(alpha * omega)
-    M = M.at[37,53].set(alpha * omega)
-    M = M.at[38,9].set(gamma * omega)
-    M = M.at[38,22].set(beta * omega)
-    M = M.at[38,30].set(gamma * omega)
-    M = M.at[38,34].set(beta * omega)
-    M = M.at[38,37].set(eta)
-    M = M.at[38,39].set(beta * omega)
-    M = M.at[38,40].set(delta * omega)
-    M = M.at[38,42].set(alpha * omega)
-    M = M.at[38,54].set(alpha * omega)
-    M = M.at[39,23].set(beta * omega)
-    M = M.at[39,31].set(gamma * omega)
-    M = M.at[39,35].set(beta * omega)
-    M = M.at[39,37].set(gamma * omega)
-    M = M.at[39,38].set(beta * omega)
-    M = M.at[39,40].set(alpha)
-    M = M.at[39,43].set(alpha * omega)
-    M = M.at[39,55].set(alpha * omega)
-    M = M.at[40,24].set(beta * omega)
-    M = M.at[40,32].set(gamma * omega)
-    M = M.at[40,36].set(beta * omega)
-    M = M.at[40,37].set(epsilon * omega)
-    M = M.at[40,38].set(delta * omega)
-    M = M.at[40,39].set(alpha)
-    M = M.at[40,44].set(alpha * omega)
-    M = M.at[40,56].set(alpha * omega)
-    M = M.at[41,10].set(gamma * omega)
-    M = M.at[41,25].set(beta * omega)
-    M = M.at[41,29].set(epsilon * omega)
-    M = M.at[41,33].set(delta * omega)
-    M = M.at[41,37].set(alpha * omega)
-    M = M.at[41,42].set(eta)
-    M = M.at[41,43].set(gamma * omega)
-    M = M.at[41,44].set(epsilon * omega)
-    M = M.at[41,57].set(alpha * omega)
-    M = M.at[42,11].set(gamma * omega)
-    M = M.at[42,26].set(beta * omega)
-    M = M.at[42,30].set(epsilon * omega)
-    M = M.at[42,34].set(delta * omega)
-    M = M.at[42,38].set(alpha * omega)
-    M = M.at[42,41].set(eta)
-    M = M.at[42,43].set(beta * omega)
-    M = M.at[42,44].set(delta * omega)
-    M = M.at[42,58].set(alpha * omega)
-    M = M.at[43,27].set(beta)
-    M = M.at[43,31].set(epsilon * omega)
-    M = M.at[43,35].set(delta * omega)
-    M = M.at[43,39].set(alpha * omega)
-    M = M.at[43,41].set(gamma * omega)
-    M = M.at[43,42].set(beta * omega)
-    M = M.at[43,44].set(alpha)
-    M = M.at[43,59].set(alpha * omega)
-    M = M.at[44,12].set(gamma * omega)
-    M = M.at[44,28].set(beta)
-    M = M.at[44,32].set(epsilon * omega)
-    M = M.at[44,36].set(delta * omega)
-    M = M.at[44,40].set(alpha * omega)
-    M = M.at[44,41].set(epsilon * omega)
-    M = M.at[44,42].set(delta * omega)
-    M = M.at[44,43].set(alpha)
-    M = M.at[44,60].set(alpha * omega)
-    M = M.at[45,0].set(epsilon * omega)
-    M = M.at[45,13].set(delta * omega)
-    M = M.at[45,29].set(alpha * omega)
-    M = M.at[45,46].set(eta)
-    M = M.at[45,47].set(gamma)
-    M = M.at[45,48].set(epsilon)
-    M = M.at[45,49].set(eta * omega)
-    M = M.at[45,53].set(gamma * omega)
-    M = M.at[45,57].set(epsilon * omega)
-    M = M.at[46,1].set(epsilon * omega)
-    M = M.at[46,14].set(delta * omega)
-    M = M.at[46,30].set(alpha * omega)
-    M = M.at[46,45].set(eta)
-    M = M.at[46,47].set(beta)
-    M = M.at[46,48].set(delta)
-    M = M.at[46,50].set(eta * omega)
-    M = M.at[46,54].set(gamma * omega)
-    M = M.at[46,58].set(epsilon * omega)
-    M = M.at[47,2].set(epsilon * omega)
-    M = M.at[47,15].set(delta * omega)
-    M = M.at[47,31].set(alpha * omega)
-    M = M.at[47,45].set(gamma)
-    M = M.at[47,46].set(beta)
-    M = M.at[47,48].set(alpha)
-    M = M.at[47,51].set(eta * omega)
-    M = M.at[47,55].set(gamma * omega)
-    M = M.at[47,59].set(epsilon * omega)
-    M = M.at[48,3].set(epsilon * omega)
-    M = M.at[48,16].set(delta * omega)
-    M = M.at[48,32].set(alpha * omega)
-    M = M.at[48,45].set(epsilon)
-    M = M.at[48,46].set(delta)
-    M = M.at[48,47].set(alpha)
-    M = M.at[48,52].set(eta * omega)
-    M = M.at[48,56].set(gamma * omega)
-    M = M.at[48,60].set(epsilon * omega)
-    M = M.at[49,4].set(epsilon * omega)
-    M = M.at[49,17].set(delta * omega)
-    M = M.at[49,33].set(alpha * omega)
-    M = M.at[49,45].set(eta * omega)
-    M = M.at[49,50].set(eta)
-    M = M.at[49,51].set(gamma)
-    M = M.at[49,52].set(epsilon)
-    M = M.at[49,53].set(beta * omega)
-    M = M.at[49,57].set(delta * omega)
-    M = M.at[50,5].set(epsilon * omega)
-    M = M.at[50,18].set(delta * omega)
-    M = M.at[50,34].set(alpha * omega)
-    M = M.at[50,46].set(eta * omega)
-    M = M.at[50,49].set(eta)
-    M = M.at[50,51].set(beta)
-    M = M.at[50,52].set(delta)
-    M = M.at[50,54].set(beta * omega)
-    M = M.at[50,58].set(delta * omega)
-    M = M.at[51,6].set(epsilon * omega)
-    M = M.at[51,19].set(delta * omega)
-    M = M.at[51,35].set(alpha * omega)
-    M = M.at[51,47].set(eta * omega)
-    M = M.at[51,49].set(gamma)
-    M = M.at[51,50].set(beta)
-    M = M.at[51,52].set(alpha)
-    M = M.at[51,55].set(beta * omega)
-    M = M.at[51,59].set(delta * omega)
-    M = M.at[52,7].set(epsilon * omega)
-    M = M.at[52,20].set(delta * omega)
-    M = M.at[52,36].set(alpha * omega)
-    M = M.at[52,48].set(eta * omega)
-    M = M.at[52,49].set(epsilon)
-    M = M.at[52,50].set(delta)
-    M = M.at[52,51].set(alpha)
-    M = M.at[52,56].set(beta * omega)
-    M = M.at[52,60].set(delta * omega)
-    M = M.at[53,8].set(epsilon * omega)
-    M = M.at[53,21].set(delta * omega)
-    M = M.at[53,37].set(alpha * omega)
-    M = M.at[53,45].set(gamma * omega)
-    M = M.at[53,49].set(beta * omega)
-    M = M.at[53,54].set(eta)
-    M = M.at[53,55].set(gamma * omega)
-    M = M.at[53,56].set(epsilon * omega)
-    M = M.at[53,57].set(alpha * omega)
-    M = M.at[54,9].set(epsilon * omega)
-    M = M.at[54,22].set(delta * omega)
-    M = M.at[54,38].set(alpha * omega)
-    M = M.at[54,46].set(gamma * omega)
-    M = M.at[54,50].set(beta * omega)
-    M = M.at[54,53].set(eta)
-    M = M.at[54,55].set(beta * omega)
-    M = M.at[54,56].set(delta * omega)
-    M = M.at[54,58].set(alpha * omega)
-    M = M.at[55,23].set(delta * omega)
-    M = M.at[55,39].set(alpha * omega)
-    M = M.at[55,47].set(gamma * omega)
-    M = M.at[55,51].set(beta * omega)
-    M = M.at[55,53].set(gamma * omega)
-    M = M.at[55,54].set(beta * omega)
-    M = M.at[55,56].set(alpha)
-    M = M.at[55,59].set(alpha * omega)
-    M = M.at[56,24].set(delta * omega)
-    M = M.at[56,40].set(alpha * omega)
-    M = M.at[56,48].set(gamma * omega)
-    M = M.at[56,52].set(beta * omega)
-    M = M.at[56,53].set(epsilon * omega)
-    M = M.at[56,54].set(delta * omega)
-    M = M.at[56,55].set(alpha)
-    M = M.at[56,60].set(alpha * omega)
-    M = M.at[57,10].set(epsilon * omega)
-    M = M.at[57,25].set(delta * omega)
-    M = M.at[57,41].set(alpha * omega)
-    M = M.at[57,45].set(epsilon * omega)
-    M = M.at[57,49].set(delta * omega)
-    M = M.at[57,53].set(alpha * omega)
-    M = M.at[57,58].set(eta)
-    M = M.at[57,59].set(gamma)
-    M = M.at[57,60].set(epsilon)
-    M = M.at[58,11].set(epsilon * omega)
-    M = M.at[58,26].set(delta * omega)
-    M = M.at[58,42].set(alpha * omega)
-    M = M.at[58,46].set(epsilon * omega)
-    M = M.at[58,50].set(delta * omega)
-    M = M.at[58,54].set(alpha * omega)
-    M = M.at[58,57].set(eta)
-    M = M.at[58,59].set(beta)
-    M = M.at[58,60].set(delta)
-    M = M.at[59,27].set(delta * omega)
-    M = M.at[59,43].set(alpha * omega)
-    M = M.at[59,47].set(epsilon * omega)
-    M = M.at[59,51].set(delta * omega)
-    M = M.at[59,55].set(alpha * omega)
-    M = M.at[59,57].set(gamma)
-    M = M.at[59,58].set(beta)
-    M = M.at[59,60].set(alpha)
-    M = M.at[60,12].set(epsilon * omega)
-    M = M.at[60,28].set(delta * omega)
-    M = M.at[60,44].set(alpha * omega)
-    M = M.at[60,48].set(epsilon * omega)
-    M = M.at[60,52].set(delta * omega)
-    M = M.at[60,56].set(alpha * omega)
-    M = M.at[60,57].set(epsilon)
-    M = M.at[60,58].set(delta)
-    M = M.at[60,59].set(alpha)
+  values = jnp.array([
+    eta,
+    gamma * omega,
+    epsilon * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    eta,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    gamma * omega,
+    beta * omega,
+    alpha,
+    eta * omega,
+    eta,
+    gamma * omega,
+    epsilon * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha,
+    eta * omega,
+    epsilon * omega,
+    eta,
+    gamma * omega,
+    epsilon * omega,
+    eta * omega,
+    eta,
+    gamma,
+    epsilon,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    eta * omega,
+    eta,
+    beta,
+    delta,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    eta * omega,
+    gamma,
+    beta,
+    alpha,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    eta * omega,
+    epsilon,
+    delta,
+    alpha,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    alpha * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    alpha * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    epsilon * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    epsilon * omega,
+    delta * omega,
+    epsilon * omega,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    eta * omega,
+    eta,
+    gamma,
+    epsilon,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    eta,
+    beta,
+    delta,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    beta * omega,
+    delta * omega,
+    eta,
+    gamma,
+    beta,
+    alpha,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    beta * omega,
+    delta * omega,
+    eta,
+    epsilon,
+    delta,
+    alpha,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    eta * omega,
+    eta,
+    gamma,
+    epsilon,
+    beta * omega,
+    delta * omega,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    eta * omega,
+    eta,
+    beta,
+    delta,
+    beta * omega,
+    delta * omega,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    eta * omega,
+    gamma,
+    beta,
+    alpha,
+    beta * omega,
+    delta * omega,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    eta * omega,
+    epsilon,
+    delta,
+    alpha,
+    beta * omega,
+    delta * omega,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    gamma * omega,
+    epsilon * omega,
+    alpha * omega,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    beta * omega,
+    delta * omega,
+    alpha * omega,
+    beta * omega,
+    delta * omega,
+    gamma * omega,
+    beta * omega,
+    gamma * omega,
+    beta * omega,
+    alpha,
+    alpha * omega,
+    beta * omega,
+    delta * omega,
+    gamma * omega,
+    beta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha,
+    alpha * omega,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    gamma,
+    epsilon,
+    beta * omega,
+    delta * omega,
+    eta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    beta,
+    delta,
+    beta * omega,
+    delta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    gamma,
+    beta,
+    alpha,
+    beta,
+    delta * omega,
+    eta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    epsilon,
+    delta,
+    alpha,
+    beta,
+    delta * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    gamma,
+    epsilon * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    beta,
+    delta * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    gamma,
+    beta,
+    alpha * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    eta * omega,
+    eta,
+    gamma,
+    epsilon,
+    beta * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    eta * omega,
+    eta,
+    beta,
+    delta,
+    beta * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    eta * omega,
+    gamma,
+    beta,
+    alpha,
+    beta * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    eta * omega,
+    epsilon,
+    delta,
+    alpha,
+    beta * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    gamma * omega,
+    epsilon * omega,
+    alpha * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    beta * omega,
+    delta * omega,
+    alpha * omega,
+    alpha * omega,
+    beta * omega,
+    gamma * omega,
+    beta * omega,
+    gamma * omega,
+    beta * omega,
+    alpha,
+    alpha * omega,
+    alpha * omega,
+    beta * omega,
+    gamma * omega,
+    beta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha,
+    alpha * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    gamma * omega,
+    epsilon * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    beta * omega,
+    delta * omega,
+    alpha * omega,
+    beta,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    alpha,
+    alpha * omega,
+    gamma * omega,
+    beta,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha,
+    alpha * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    gamma,
+    epsilon,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    beta,
+    delta,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    gamma,
+    beta,
+    alpha,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    epsilon,
+    delta,
+    alpha,
+    eta * omega,
+    gamma * omega,
+    epsilon * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta * omega,
+    eta,
+    gamma,
+    epsilon,
+    beta * omega,
+    delta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta * omega,
+    eta,
+    beta,
+    delta,
+    beta * omega,
+    delta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta * omega,
+    gamma,
+    beta,
+    alpha,
+    beta * omega,
+    delta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta * omega,
+    epsilon,
+    delta,
+    alpha,
+    beta * omega,
+    delta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    gamma * omega,
+    epsilon * omega,
+    alpha * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    eta,
+    beta * omega,
+    delta * omega,
+    alpha * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    gamma * omega,
+    beta * omega,
+    alpha,
+    alpha * omega,
+    delta * omega,
+    alpha * omega,
+    gamma * omega,
+    beta * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha,
+    alpha * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    gamma,
+    epsilon,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    eta,
+    beta,
+    delta,
+    delta * omega,
+    alpha * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    gamma,
+    beta,
+    alpha,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    epsilon * omega,
+    delta * omega,
+    alpha * omega,
+    epsilon,
+    delta,
+    alpha,
+  ])
+
+  M = M.at[rows, cols].set(values)
 
     #print(f"pimat={pimat}")
     #print(f"M={M}")
     #print([alpha, beta, gamma, delta, epsilon, eta, omega])
     #print(jnp.matmul(M, pimat))
     #M = jnp.multiply(jnp.multiply(M, pimat).T, pimat).T
-    M = jnp.matmul(jnp.matmul(M, pimat).T, pimat).T
+  M = jnp.matmul(jnp.matmul(M, pimat).T, pimat).T
     # seems to work. Stan apparently does matrix multiplication when using the * operator on two matrices
     #print(M)
-    M = diag_update(M, pimult)
+  M = diag_update(M, pimult)
     #print(M)
-    return M
+  return M
 
 #@jit
 def update_GTR(M, omega, pimult):
