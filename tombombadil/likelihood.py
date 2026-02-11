@@ -2,13 +2,17 @@
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+from jax import jit
 
 from .gtr import update_GTR
+from .gtr import build_GTR
 
 @jax.profiler.annotate_function
+@jit
 def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #print("A", A[7, ])
     mutmat = update_GTR(A, omega, pimult)
+    #mutmat = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # compared these two versions (needs passing args to gen_alpha but update_GTR slightly better)
     #print("mutmat", mutmat)
 
     eps = 1e-4
