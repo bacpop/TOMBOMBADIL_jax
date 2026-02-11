@@ -565,13 +565,10 @@ def diag_update(M, pimult):
     #for i in range(61):
     #    M = M.at[i, i].set(0)
     #    M = M.at[i, i].set(-jnp.dot(M[i, :], pimult[i, :]))
-    M = M.at[jnp.diag_indices(61)].set(0.0)
-    diag_vals = -jnp.sum(M * pimult, axis=1)
-    M = M.at[jnp.diag_indices(M.shape[0])].set(diag_vals)
-    # mask out diagonal contribution in the row sum
-    #row_sum = jnp.sum(M * pimult, axis=1)
-    #diag_vals = -(row_sum - M.diagonal() * pimult.diagonal())
-    #M = M.at[jnp.diag_indices(M.shape[0])].set(diag_vals)
+    # trying to make this more jax
+    M = M.at[jnp.diag_indices(61)].set(0.0) # set diagonal to zero
+    diag_vals = -jnp.sum(M * pimult, axis=1) # calculate dot product of rows
+    M = M.at[jnp.diag_indices(M.shape[0])].set(diag_vals) # set diagonal to dot product
     return M
 
 @jit
@@ -1638,18 +1635,11 @@ def build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult):
     alpha,
   ])
 
-  M = M.at[rows, cols].set(values)
+  M = M.at[rows, cols].set(values) # set all row, column entries to values from value vector
 
-    #print(f"pimat={pimat}")
-    #print(f"M={M}")
-    #print([alpha, beta, gamma, delta, epsilon, eta, omega])
-    #print(jnp.matmul(M, pimat))
-    #M = jnp.multiply(jnp.multiply(M, pimat).T, pimat).T
   M = jnp.matmul(jnp.matmul(M, pimat).T, pimat).T
     # seems to work. Stan apparently does matrix multiplication when using the * operator on two matrices
-    #print(M)
   M = diag_update(M, pimult)
-    #print(M)
   return M
 
 @jit
@@ -2057,7 +2047,7 @@ def update_GTR(M, omega, pimult):
     rows = IDX[:, 0]
     cols = IDX[:, 1]
 
-    Mout = Mout.at[rows, cols].set(Mout[rows, cols] * omega)
-    Mout = diag_update(Mout, pimult)
+    Mout = Mout.at[rows, cols].set(Mout[rows, cols] * omega) # multiply all row, col entries by omega
+    Mout = diag_update(Mout, pimult) # update diagonal
 
     return Mout

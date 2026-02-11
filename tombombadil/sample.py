@@ -65,7 +65,7 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     #print(pimult)
     #A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix
     #A = build_GTR(1, 1, 1, 1, 1, 1, 1, pimat, pimult) # same as NY98?
-    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix
+    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix # for building the GTR matrix you want omega=1 (mean mutation rate under neutrality)
     #print(A) # is all zeros at the moment
     #print(pi_eq)
     #print(jnp.diagonal(A))
@@ -217,7 +217,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
                 params = optax.apply_updates(params, updates) # update parameters
             #print('updates: ',((updates)))
             #print('Parameters: ',((params)))
-            print('Objective function: ',(loss(params)))
+            #print('Objective function: ',(loss(params)))
 
             #jax.block_until_ready(params)
         #jax.profiler.stop_trace()
@@ -225,5 +225,6 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     print('Final parameters: ',((params)))
+    print('Objective function: ',(loss(params)))
 
 
