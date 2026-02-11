@@ -63,9 +63,10 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     # Calculate substitution rate matrix under neutrality
     #print(pimat)
     #print(pimult)
-    #A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix
+    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix # want to fix omega=1 to calculate meanrate
     #A = build_GTR(1, 1, 1, 1, 1, 1, 1, pimat, pimult) # same as NY98?
-    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # 61x61 subst rate matrix
+    #A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # 61x61 subst rate matrix
+    #A = jax.lax.stop_gradient(build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult)) # suggestion from chatgpt
     #print(A) # is all zeros at the moment
     #print(pi_eq)
     #print(jnp.diagonal(A))
@@ -73,7 +74,6 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     meanrate = -jnp.dot(jnp.diagonal(A), pi_eq)
     # Calculate substitution rate matrix
     scale = (mu / 2.0) / meanrate
-
     alpha = gen_alpha(omega, A, pimat, pimult, pimatinv, scale)
     #print('alpha: ',alpha)
     #print("obs_vec: ", obs_vec)
@@ -83,7 +83,8 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     #log_prob = scipy.stats.multinomial.logpmf(obs_vec, N, alpha) # this is pmf in John's code but we think it might need to be pmf?
     # log_prob = scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) # gives -10.21301 (correct)
     log_prob = my_dirichlet_multinomial_logpmf(obs_vec, alpha) # our custom, jnp based dirichlet_multinomial.logpmf but something is wrong in the implementation this function gives us an integer, we want a vector of length 61
-
+    #jax.debug.print("log_prob = {}", log_prob)
+    #jax.debug.print("log_pi = {}", jnp.isfinite(log_pi))
     #print("Difference between scipy and custom jax dirichlet-multinomial logpmf:", scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) - my_dirichlet_multinomial_logpmf(obs_vec, alpha))
     #print("Difference between scipy and other custom jax dirichlet-multinomial logpmf:", scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) - my_dirichlet_multinomial_logpmf_2(obs_vec, alpha))
     
@@ -152,6 +153,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         #print('losses: ',losses)
+        jax.debug.print("losses = {}", losses)
+
         return jnp.mean(losses)
     
     # TODO: set threads/device/optim options
@@ -192,7 +195,6 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         "epsilon": "scalar",
         "eta": "scalar",
         "theta": "scalar",
-        "omega": "scalar",
     },
 )
 
@@ -202,16 +204,25 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     opt_state = solver.init(params)
 
     # executing these steps once so they are compiled -- cleaner for profiling (?)
-    grad = jax.grad(loss)(params)
-    updates, opt_state = solver.update(grad, opt_state, params)
-    params = optax.apply_updates(params, updates)
+    #grad = jax.grad(loss)(params)
+    #jax.debug.print("omega raw = {}", params["omega"])
+    #jax.debug.print("omega finite = {}", jnp.isfinite(params["omega"]))
+    #jax.debug.print("grad = {}", grad)
+    #jax.debug.print("opt_state = {}", opt_state)
+    #print('Gradient: ',((grad)))
+    #print('opt_state: ',((opt_state)))
+    #updates, opt_state = solver.update(grad, opt_state, params)
+    #jax.debug.print("opt_state = {}", opt_state)
+    #params = optax.apply_updates(params, updates)
     with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
-        for _ in range(5): # define number of iterations of optimizer
+        for _ in range(2): # define number of iterations of optimizer
             with jax.profiler.TraceAnnotation("grad"):
                 grad = jax.grad(loss)(params) # compute gradient
-            #print('Gradient: ',((grad)))
+            print('Gradient: ',((grad)))
             with jax.profiler.TraceAnnotation("update_states"):
                 updates, opt_state = solver.update(grad, opt_state, params) # update states
+            #jax.debug.print("omega raw = {}", params["omega"])
+            #jax.debug.print("omega finite = {}", jnp.isfinite(params["omega"]))
             with jax.profiler.TraceAnnotation("update_params"):
                 params = optax.apply_updates(params, updates) # update parameters
             #print('updates: ',((updates)))
@@ -220,7 +231,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
 
             #jax.block_until_ready(params)
         #jax.profiler.stop_trace()
-        params.block_until_ready()
+        grad.block_until_ready()
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     print('Final parameters: ',((params)))

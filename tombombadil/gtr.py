@@ -1,3 +1,4 @@
+import jax
 from jax import jit
 import jax.numpy as jnp
 
@@ -1648,400 +1649,807 @@ def update_GTR(M, omega, pimult):
     # wasteful but 'neat'?
     # M = jnp.multiply(M, jnp.multiply(omega_mat, omega) + non_omega_mat)
 
-    Mout = M.copy()
-    Mout = Mout.at[0,2].multiply(omega)
-    Mout = Mout.at[0,3].multiply(omega)
-    Mout = Mout.at[0,4].multiply(omega)
-    Mout = Mout.at[0,8].multiply(omega)
-    Mout = Mout.at[0,10].multiply(omega)
-    Mout = Mout.at[0,13].multiply(omega)
-    Mout = Mout.at[0,29].multiply(omega)
-    Mout = Mout.at[0,45].multiply(omega)
-    Mout = Mout.at[1,2].multiply(omega)
-    Mout = Mout.at[1,3].multiply(omega)
-    Mout = Mout.at[1,5].multiply(omega)
-    Mout = Mout.at[1,9].multiply(omega)
-    Mout = Mout.at[1,11].multiply(omega)
-    Mout = Mout.at[1,14].multiply(omega)
-    Mout = Mout.at[1,30].multiply(omega)
-    Mout = Mout.at[1,46].multiply(omega)
-    Mout = Mout.at[2,0].multiply(omega)
-    Mout = Mout.at[2,1].multiply(omega)
-    Mout = Mout.at[2,6].multiply(omega)
-    Mout = Mout.at[2,31].multiply(omega)
-    Mout = Mout.at[2,47].multiply(omega)
-    Mout = Mout.at[3,0].multiply(omega)
-    Mout = Mout.at[3,1].multiply(omega)
-    Mout = Mout.at[3,7].multiply(omega)
-    Mout = Mout.at[3,12].multiply(omega)
-    Mout = Mout.at[3,32].multiply(omega)
-    Mout = Mout.at[3,48].multiply(omega)
-    Mout = Mout.at[4,0].multiply(omega)
-    Mout = Mout.at[4,8].multiply(omega)
-    Mout = Mout.at[4,10].multiply(omega)
-    Mout = Mout.at[4,17].multiply(omega)
-    Mout = Mout.at[4,33].multiply(omega)
-    Mout = Mout.at[4,49].multiply(omega)
-    Mout = Mout.at[5,1].multiply(omega)
-    Mout = Mout.at[5,9].multiply(omega)
-    Mout = Mout.at[5,11].multiply(omega)
-    Mout = Mout.at[5,18].multiply(omega)
-    Mout = Mout.at[5,34].multiply(omega)
-    Mout = Mout.at[5,50].multiply(omega)
-    Mout = Mout.at[6,2].multiply(omega)
-    Mout = Mout.at[6,19].multiply(omega)
-    Mout = Mout.at[6,35].multiply(omega)
-    Mout = Mout.at[6,51].multiply(omega)
-    Mout = Mout.at[7,3].multiply(omega)
-    Mout = Mout.at[7,12].multiply(omega)
-    Mout = Mout.at[7,20].multiply(omega)
-    Mout = Mout.at[7,36].multiply(omega)
-    Mout = Mout.at[7,52].multiply(omega)
-    Mout = Mout.at[8,0].multiply(omega)
-    Mout = Mout.at[8,4].multiply(omega)
-    Mout = Mout.at[8,10].multiply(omega)
-    Mout = Mout.at[8,21].multiply(omega)
-    Mout = Mout.at[8,37].multiply(omega)
-    Mout = Mout.at[8,53].multiply(omega)
-    Mout = Mout.at[9,1].multiply(omega)
-    Mout = Mout.at[9,5].multiply(omega)
-    Mout = Mout.at[9,11].multiply(omega)
-    Mout = Mout.at[9,22].multiply(omega)
-    Mout = Mout.at[9,38].multiply(omega)
-    Mout = Mout.at[9,54].multiply(omega)
-    Mout = Mout.at[10,0].multiply(omega)
-    Mout = Mout.at[10,4].multiply(omega)
-    Mout = Mout.at[10,8].multiply(omega)
-    Mout = Mout.at[10,12].multiply(omega)
-    Mout = Mout.at[10,25].multiply(omega)
-    Mout = Mout.at[10,41].multiply(omega)
-    Mout = Mout.at[10,57].multiply(omega)
-    Mout = Mout.at[11,1].multiply(omega)
-    Mout = Mout.at[11,5].multiply(omega)
-    Mout = Mout.at[11,9].multiply(omega)
-    Mout = Mout.at[11,12].multiply(omega)
-    Mout = Mout.at[11,26].multiply(omega)
-    Mout = Mout.at[11,42].multiply(omega)
-    Mout = Mout.at[11,58].multiply(omega)
-    Mout = Mout.at[12,3].multiply(omega)
-    Mout = Mout.at[12,7].multiply(omega)
-    Mout = Mout.at[12,10].multiply(omega)
-    Mout = Mout.at[12,11].multiply(omega)
-    Mout = Mout.at[12,28].multiply(omega)
-    Mout = Mout.at[12,44].multiply(omega)
-    Mout = Mout.at[12,60].multiply(omega)
-    Mout = Mout.at[13,0].multiply(omega)
-    Mout = Mout.at[13,17].multiply(omega)
-    Mout = Mout.at[13,21].multiply(omega)
-    Mout = Mout.at[13,25].multiply(omega)
-    Mout = Mout.at[13,29].multiply(omega)
-    Mout = Mout.at[13,45].multiply(omega)
-    Mout = Mout.at[14,1].multiply(omega)
-    Mout = Mout.at[14,18].multiply(omega)
-    Mout = Mout.at[14,22].multiply(omega)
-    Mout = Mout.at[14,26].multiply(omega)
-    Mout = Mout.at[14,30].multiply(omega)
-    Mout = Mout.at[14,46].multiply(omega)
-    Mout = Mout.at[15,19].multiply(omega)
-    Mout = Mout.at[15,23].multiply(omega)
-    Mout = Mout.at[15,27].multiply(omega)
-    Mout = Mout.at[15,31].multiply(omega)
-    Mout = Mout.at[15,47].multiply(omega)
-    Mout = Mout.at[16,20].multiply(omega)
-    Mout = Mout.at[16,24].multiply(omega)
-    Mout = Mout.at[16,28].multiply(omega)
-    Mout = Mout.at[16,32].multiply(omega)
-    Mout = Mout.at[16,48].multiply(omega)
-    Mout = Mout.at[17,4].multiply(omega)
-    Mout = Mout.at[17,13].multiply(omega)
-    Mout = Mout.at[17,21].multiply(omega)
-    Mout = Mout.at[17,25].multiply(omega)
-    Mout = Mout.at[17,33].multiply(omega)
-    Mout = Mout.at[17,49].multiply(omega)
-    Mout = Mout.at[18,5].multiply(omega)
-    Mout = Mout.at[18,14].multiply(omega)
-    Mout = Mout.at[18,22].multiply(omega)
-    Mout = Mout.at[18,26].multiply(omega)
-    Mout = Mout.at[18,34].multiply(omega)
-    Mout = Mout.at[18,50].multiply(omega)
-    Mout = Mout.at[19,6].multiply(omega)
-    Mout = Mout.at[19,15].multiply(omega)
-    Mout = Mout.at[19,23].multiply(omega)
-    Mout = Mout.at[19,27].multiply(omega)
-    Mout = Mout.at[19,35].multiply(omega)
-    Mout = Mout.at[19,51].multiply(omega)
-    Mout = Mout.at[20,7].multiply(omega)
-    Mout = Mout.at[20,16].multiply(omega)
-    Mout = Mout.at[20,24].multiply(omega)
-    Mout = Mout.at[20,28].multiply(omega)
-    Mout = Mout.at[20,36].multiply(omega)
-    Mout = Mout.at[20,52].multiply(omega)
-    Mout = Mout.at[21,8].multiply(omega)
-    Mout = Mout.at[21,13].multiply(omega)
-    Mout = Mout.at[21,17].multiply(omega)
-    Mout = Mout.at[21,23].multiply(omega)
-    Mout = Mout.at[21,24].multiply(omega)
-    Mout = Mout.at[21,25].multiply(omega)
-    Mout = Mout.at[21,37].multiply(omega)
-    Mout = Mout.at[21,53].multiply(omega)
-    Mout = Mout.at[22,9].multiply(omega)
-    Mout = Mout.at[22,14].multiply(omega)
-    Mout = Mout.at[22,18].multiply(omega)
-    Mout = Mout.at[22,23].multiply(omega)
-    Mout = Mout.at[22,24].multiply(omega)
-    Mout = Mout.at[22,26].multiply(omega)
-    Mout = Mout.at[22,38].multiply(omega)
-    Mout = Mout.at[22,54].multiply(omega)
-    Mout = Mout.at[23,15].multiply(omega)
-    Mout = Mout.at[23,19].multiply(omega)
-    Mout = Mout.at[23,21].multiply(omega)
-    Mout = Mout.at[23,22].multiply(omega)
-    Mout = Mout.at[23,27].multiply(omega)
-    Mout = Mout.at[23,39].multiply(omega)
-    Mout = Mout.at[23,55].multiply(omega)
-    Mout = Mout.at[24,16].multiply(omega)
-    Mout = Mout.at[24,20].multiply(omega)
-    Mout = Mout.at[24,21].multiply(omega)
-    Mout = Mout.at[24,22].multiply(omega)
-    Mout = Mout.at[24,28].multiply(omega)
-    Mout = Mout.at[24,40].multiply(omega)
-    Mout = Mout.at[24,56].multiply(omega)
-    Mout = Mout.at[25,10].multiply(omega)
-    Mout = Mout.at[25,13].multiply(omega)
-    Mout = Mout.at[25,17].multiply(omega)
-    Mout = Mout.at[25,21].multiply(omega)
-    Mout = Mout.at[25,41].multiply(omega)
-    Mout = Mout.at[25,57].multiply(omega)
-    Mout = Mout.at[26,11].multiply(omega)
-    Mout = Mout.at[26,14].multiply(omega)
-    Mout = Mout.at[26,18].multiply(omega)
-    Mout = Mout.at[26,22].multiply(omega)
-    Mout = Mout.at[26,42].multiply(omega)
-    Mout = Mout.at[26,58].multiply(omega)
-    Mout = Mout.at[27,15].multiply(omega)
-    Mout = Mout.at[27,19].multiply(omega)
-    Mout = Mout.at[27,23].multiply(omega)
-    Mout = Mout.at[27,59].multiply(omega)
-    Mout = Mout.at[28,12].multiply(omega)
-    Mout = Mout.at[28,16].multiply(omega)
-    Mout = Mout.at[28,20].multiply(omega)
-    Mout = Mout.at[28,24].multiply(omega)
-    Mout = Mout.at[28,60].multiply(omega)
-    Mout = Mout.at[29,0].multiply(omega)
-    Mout = Mout.at[29,13].multiply(omega)
-    Mout = Mout.at[29,32].multiply(omega)
-    Mout = Mout.at[29,33].multiply(omega)
-    Mout = Mout.at[29,37].multiply(omega)
-    Mout = Mout.at[29,41].multiply(omega)
-    Mout = Mout.at[29,45].multiply(omega)
-    Mout = Mout.at[30,1].multiply(omega)
-    Mout = Mout.at[30,14].multiply(omega)
-    Mout = Mout.at[30,32].multiply(omega)
-    Mout = Mout.at[30,34].multiply(omega)
-    Mout = Mout.at[30,38].multiply(omega)
-    Mout = Mout.at[30,42].multiply(omega)
-    Mout = Mout.at[30,46].multiply(omega)
-    Mout = Mout.at[31,2].multiply(omega)
-    Mout = Mout.at[31,15].multiply(omega)
-    Mout = Mout.at[31,32].multiply(omega)
-    Mout = Mout.at[31,35].multiply(omega)
-    Mout = Mout.at[31,39].multiply(omega)
-    Mout = Mout.at[31,43].multiply(omega)
-    Mout = Mout.at[31,47].multiply(omega)
-    Mout = Mout.at[32,3].multiply(omega)
-    Mout = Mout.at[32,16].multiply(omega)
-    Mout = Mout.at[32,29].multiply(omega)
-    Mout = Mout.at[32,30].multiply(omega)
-    Mout = Mout.at[32,31].multiply(omega)
-    Mout = Mout.at[32,36].multiply(omega)
-    Mout = Mout.at[32,40].multiply(omega)
-    Mout = Mout.at[32,44].multiply(omega)
-    Mout = Mout.at[32,48].multiply(omega)
-    Mout = Mout.at[33,4].multiply(omega)
-    Mout = Mout.at[33,17].multiply(omega)
-    Mout = Mout.at[33,29].multiply(omega)
-    Mout = Mout.at[33,37].multiply(omega)
-    Mout = Mout.at[33,41].multiply(omega)
-    Mout = Mout.at[33,49].multiply(omega)
-    Mout = Mout.at[34,5].multiply(omega)
-    Mout = Mout.at[34,18].multiply(omega)
-    Mout = Mout.at[34,30].multiply(omega)
-    Mout = Mout.at[34,38].multiply(omega)
-    Mout = Mout.at[34,42].multiply(omega)
-    Mout = Mout.at[34,50].multiply(omega)
-    Mout = Mout.at[35,6].multiply(omega)
-    Mout = Mout.at[35,19].multiply(omega)
-    Mout = Mout.at[35,31].multiply(omega)
-    Mout = Mout.at[35,39].multiply(omega)
-    Mout = Mout.at[35,43].multiply(omega)
-    Mout = Mout.at[35,51].multiply(omega)
-    Mout = Mout.at[36,7].multiply(omega)
-    Mout = Mout.at[36,20].multiply(omega)
-    Mout = Mout.at[36,32].multiply(omega)
-    Mout = Mout.at[36,40].multiply(omega)
-    Mout = Mout.at[36,44].multiply(omega)
-    Mout = Mout.at[36,52].multiply(omega)
-    Mout = Mout.at[37,8].multiply(omega)
-    Mout = Mout.at[37,21].multiply(omega)
-    Mout = Mout.at[37,29].multiply(omega)
-    Mout = Mout.at[37,33].multiply(omega)
-    Mout = Mout.at[37,39].multiply(omega)
-    Mout = Mout.at[37,40].multiply(omega)
-    Mout = Mout.at[37,41].multiply(omega)
-    Mout = Mout.at[37,53].multiply(omega)
-    Mout = Mout.at[38,9].multiply(omega)
-    Mout = Mout.at[38,22].multiply(omega)
-    Mout = Mout.at[38,30].multiply(omega)
-    Mout = Mout.at[38,34].multiply(omega)
-    Mout = Mout.at[38,39].multiply(omega)
-    Mout = Mout.at[38,40].multiply(omega)
-    Mout = Mout.at[38,42].multiply(omega)
-    Mout = Mout.at[38,54].multiply(omega)
-    Mout = Mout.at[39,23].multiply(omega)
-    Mout = Mout.at[39,31].multiply(omega)
-    Mout = Mout.at[39,35].multiply(omega)
-    Mout = Mout.at[39,37].multiply(omega)
-    Mout = Mout.at[39,38].multiply(omega)
-    Mout = Mout.at[39,43].multiply(omega)
-    Mout = Mout.at[39,55].multiply(omega)
-    Mout = Mout.at[40,24].multiply(omega)
-    Mout = Mout.at[40,32].multiply(omega)
-    Mout = Mout.at[40,36].multiply(omega)
-    Mout = Mout.at[40,37].multiply(omega)
-    Mout = Mout.at[40,38].multiply(omega)
-    Mout = Mout.at[40,44].multiply(omega)
-    Mout = Mout.at[40,56].multiply(omega)
-    Mout = Mout.at[41,10].multiply(omega)
-    Mout = Mout.at[41,25].multiply(omega)
-    Mout = Mout.at[41,29].multiply(omega)
-    Mout = Mout.at[41,33].multiply(omega)
-    Mout = Mout.at[41,37].multiply(omega)
-    Mout = Mout.at[41,43].multiply(omega)
-    Mout = Mout.at[41,44].multiply(omega)
-    Mout = Mout.at[41,57].multiply(omega)
-    Mout = Mout.at[42,11].multiply(omega)
-    Mout = Mout.at[42,26].multiply(omega)
-    Mout = Mout.at[42,30].multiply(omega)
-    Mout = Mout.at[42,34].multiply(omega)
-    Mout = Mout.at[42,38].multiply(omega)
-    Mout = Mout.at[42,43].multiply(omega)
-    Mout = Mout.at[42,44].multiply(omega)
-    Mout = Mout.at[42,58].multiply(omega)
-    Mout = Mout.at[43,31].multiply(omega)
-    Mout = Mout.at[43,35].multiply(omega)
-    Mout = Mout.at[43,39].multiply(omega)
-    Mout = Mout.at[43,41].multiply(omega)
-    Mout = Mout.at[43,42].multiply(omega)
-    Mout = Mout.at[43,59].multiply(omega)
-    Mout = Mout.at[44,12].multiply(omega)
-    Mout = Mout.at[44,32].multiply(omega)
-    Mout = Mout.at[44,36].multiply(omega)
-    Mout = Mout.at[44,40].multiply(omega)
-    Mout = Mout.at[44,41].multiply(omega)
-    Mout = Mout.at[44,42].multiply(omega)
-    Mout = Mout.at[44,60].multiply(omega)
-    Mout = Mout.at[45,0].multiply(omega)
-    Mout = Mout.at[45,13].multiply(omega)
-    Mout = Mout.at[45,29].multiply(omega)
-    Mout = Mout.at[45,49].multiply(omega)
-    Mout = Mout.at[45,53].multiply(omega)
-    Mout = Mout.at[45,57].multiply(omega)
-    Mout = Mout.at[46,1].multiply(omega)
-    Mout = Mout.at[46,14].multiply(omega)
-    Mout = Mout.at[46,30].multiply(omega)
-    Mout = Mout.at[46,50].multiply(omega)
-    Mout = Mout.at[46,54].multiply(omega)
-    Mout = Mout.at[46,58].multiply(omega)
-    Mout = Mout.at[47,2].multiply(omega)
-    Mout = Mout.at[47,15].multiply(omega)
-    Mout = Mout.at[47,31].multiply(omega)
-    Mout = Mout.at[47,51].multiply(omega)
-    Mout = Mout.at[47,55].multiply(omega)
-    Mout = Mout.at[47,59].multiply(omega)
-    Mout = Mout.at[48,3].multiply(omega)
-    Mout = Mout.at[48,16].multiply(omega)
-    Mout = Mout.at[48,32].multiply(omega)
-    Mout = Mout.at[48,52].multiply(omega)
-    Mout = Mout.at[48,56].multiply(omega)
-    Mout = Mout.at[48,60].multiply(omega)
-    Mout = Mout.at[49,4].multiply(omega)
-    Mout = Mout.at[49,17].multiply(omega)
-    Mout = Mout.at[49,33].multiply(omega)
-    Mout = Mout.at[49,45].multiply(omega)
-    Mout = Mout.at[49,53].multiply(omega)
-    Mout = Mout.at[49,57].multiply(omega)
-    Mout = Mout.at[50,5].multiply(omega)
-    Mout = Mout.at[50,18].multiply(omega)
-    Mout = Mout.at[50,34].multiply(omega)
-    Mout = Mout.at[50,46].multiply(omega)
-    Mout = Mout.at[50,54].multiply(omega)
-    Mout = Mout.at[50,58].multiply(omega)
-    Mout = Mout.at[51,6].multiply(omega)
-    Mout = Mout.at[51,19].multiply(omega)
-    Mout = Mout.at[51,35].multiply(omega)
-    Mout = Mout.at[51,47].multiply(omega)
-    Mout = Mout.at[51,55].multiply(omega)
-    Mout = Mout.at[51,59].multiply(omega)
-    Mout = Mout.at[52,7].multiply(omega)
-    Mout = Mout.at[52,20].multiply(omega)
-    Mout = Mout.at[52,36].multiply(omega)
-    Mout = Mout.at[52,48].multiply(omega)
-    Mout = Mout.at[52,56].multiply(omega)
-    Mout = Mout.at[52,60].multiply(omega)
-    Mout = Mout.at[53,8].multiply(omega)
-    Mout = Mout.at[53,21].multiply(omega)
-    Mout = Mout.at[53,37].multiply(omega)
-    Mout = Mout.at[53,45].multiply(omega)
-    Mout = Mout.at[53,49].multiply(omega)
-    Mout = Mout.at[53,55].multiply(omega)
-    Mout = Mout.at[53,56].multiply(omega)
-    Mout = Mout.at[53,57].multiply(omega)
-    Mout = Mout.at[54,9].multiply(omega)
-    Mout = Mout.at[54,22].multiply(omega)
-    Mout = Mout.at[54,38].multiply(omega)
-    Mout = Mout.at[54,46].multiply(omega)
-    Mout = Mout.at[54,50].multiply(omega)
-    Mout = Mout.at[54,55].multiply(omega)
-    Mout = Mout.at[54,56].multiply(omega)
-    Mout = Mout.at[54,58].multiply(omega)
-    Mout = Mout.at[55,23].multiply(omega)
-    Mout = Mout.at[55,39].multiply(omega)
-    Mout = Mout.at[55,47].multiply(omega)
-    Mout = Mout.at[55,51].multiply(omega)
-    Mout = Mout.at[55,53].multiply(omega)
-    Mout = Mout.at[55,54].multiply(omega)
-    Mout = Mout.at[55,59].multiply(omega)
-    Mout = Mout.at[56,24].multiply(omega)
-    Mout = Mout.at[56,40].multiply(omega)
-    Mout = Mout.at[56,48].multiply(omega)
-    Mout = Mout.at[56,52].multiply(omega)
-    Mout = Mout.at[56,53].multiply(omega)
-    Mout = Mout.at[56,54].multiply(omega)
-    Mout = Mout.at[56,60].multiply(omega)
-    Mout = Mout.at[57,10].multiply(omega)
-    Mout = Mout.at[57,25].multiply(omega)
-    Mout = Mout.at[57,41].multiply(omega)
-    Mout = Mout.at[57,45].multiply(omega)
-    Mout = Mout.at[57,49].multiply(omega)
-    Mout = Mout.at[57,53].multiply(omega)
-    Mout = Mout.at[58,11].multiply(omega)
-    Mout = Mout.at[58,26].multiply(omega)
-    Mout = Mout.at[58,42].multiply(omega)
-    Mout = Mout.at[58,46].multiply(omega)
-    Mout = Mout.at[58,50].multiply(omega)
-    Mout = Mout.at[58,54].multiply(omega)
-    Mout = Mout.at[59,27].multiply(omega)
-    Mout = Mout.at[59,43].multiply(omega)
-    Mout = Mout.at[59,47].multiply(omega)
-    Mout = Mout.at[59,51].multiply(omega)
-    Mout = Mout.at[59,55].multiply(omega)
-    Mout = Mout.at[60,12].multiply(omega)
-    Mout = Mout.at[60,28].multiply(omega)
-    Mout = Mout.at[60,44].multiply(omega)
-    Mout = Mout.at[60,48].multiply(omega)
-    Mout = Mout.at[60,52].multiply(omega)
-    Mout = Mout.at[60,56].multiply(omega)
+  Mout = M.copy()
 
-    Mout = diag_update(Mout, pimult)
+  """ IDX = jnp.array([
+    [0, 2],
+    [0, 3],
+    [0, 4],
+    [0, 8],
+    [0, 10],
+    [0, 13],
+    [0, 29],
+    [0, 45],
+    [1, 2],
+    [1, 3],
+    [1, 5],
+    [1, 9],
+    [1, 11],
+    [1, 14],
+    [1, 30],
+    [1, 46],
+    [2, 0],
+    [2, 1],
+    [2, 6],
+    [2, 31],
+    [2, 47],
+    [3, 0],
+    [3, 1],
+    [3, 7],
+    [3, 12],
+    [3, 32],
+    [3, 48],
+    [4, 0],
+    [4, 8],
+    [4, 10],
+    [4, 17],
+    [4, 33],
+    [4, 49],
+    [5, 1],
+    [5, 9],
+    [5, 11],
+    [5, 18],
+    [5, 34],
+    [5, 50],
+    [6, 2],
+    [6, 19],
+    [6, 35],
+    [6, 51],
+    [7, 3],
+    [7, 12],
+    [7, 20],
+    [7, 36],
+    [7, 52],
+    [8, 0],
+    [8, 4],
+    [8, 10],
+    [8, 21],
+    [8, 37],
+    [8, 53],
+    [9, 1],
+    [9, 5],
+    [9, 11],
+    [9, 22],
+    [9, 38],
+    [9, 54],
+    [10, 0],
+    [10, 4],
+    [10, 8],
+    [10, 12],
+    [10, 25],
+    [10, 41],
+    [10, 57],
+    [11, 1],
+    [11, 5],
+    [11, 9],
+    [11, 12],
+    [11, 26],
+    [11, 42],
+    [11, 58],
+    [12, 3],
+    [12, 7],
+    [12, 10],
+    [12, 11],
+    [12, 28],
+    [12, 44],
+    [12, 60],
+    [13, 0],
+    [13, 17],
+    [13, 21],
+    [13, 25],
+    [13, 29],
+    [13, 45],
+    [14, 1],
+    [14, 18],
+    [14, 22],
+    [14, 26],
+    [14, 30],
+    [14, 46],
+    [15, 19],
+    [15, 23],
+    [15, 27],
+    [15, 31],
+    [15, 47],
+    [16, 20],
+    [16, 24],
+    [16, 28],
+    [16, 32],
+    [16, 48],
+    [17, 4],
+    [17, 13],
+    [17, 21],
+    [17, 25],
+    [17, 33],
+    [17, 49],
+    [18, 5],
+    [18, 14],
+    [18, 22],
+    [18, 26],
+    [18, 34],
+    [18, 50],
+    [19, 6],
+    [19, 15],
+    [19, 23],
+    [19, 27],
+    [19, 35],
+    [19, 51],
+    [20, 7],
+    [20, 16],
+    [20, 24],
+    [20, 28],
+    [20, 36],
+    [20, 52],
+    [21, 8],
+    [21, 13],
+    [21, 17],
+    [21, 23],
+    [21, 24],
+    [21, 25],
+    [21, 37],
+    [21, 53],
+    [22, 9],
+    [22, 14],
+    [22, 18],
+    [22, 23],
+    [22, 24],
+    [22, 26],
+    [22, 38],
+    [22, 54],
+    [23, 15],
+    [23, 19],
+    [23, 21],
+    [23, 22],
+    [23, 27],
+    [23, 39],
+    [23, 55],
+    [24, 16],
+    [24, 20],
+    [24, 21],
+    [24, 22],
+    [24, 28],
+    [24, 40],
+    [24, 56],
+    [25, 10],
+    [25, 13],
+    [25, 17],
+    [25, 21],
+    [25, 41],
+    [25, 57],
+    [26, 11],
+    [26, 14],
+    [26, 18],
+    [26, 22],
+    [26, 42],
+    [26, 58],
+    [27, 15],
+    [27, 19],
+    [27, 23],
+    [27, 59],
+    [28, 12],
+    [28, 16],
+    [28, 20],
+    [28, 24],
+    [28, 60],
+    [29, 0],
+    [29, 13],
+    [29, 32],
+    [29, 33],
+    [29, 37],
+    [29, 41],
+    [29, 45],
+    [30, 1],
+    [30, 14],
+    [30, 32],
+    [30, 34],
+    [30, 38],
+    [30, 42],
+    [30, 46],
+    [31, 2],
+    [31, 15],
+    [31, 32],
+    [31, 35],
+    [31, 39],
+    [31, 43],
+    [31, 47],
+    [32, 3],
+    [32, 16],
+    [32, 29],
+    [32, 30],
+    [32, 31],
+    [32, 36],
+    [32, 40],
+    [32, 44],
+    [32, 48],
+    [33, 4],
+    [33, 17],
+    [33, 29],
+    [33, 37],
+    [33, 41],
+    [33, 49],
+    [34, 5],
+    [34, 18],
+    [34, 30],
+    [34, 38],
+    [34, 42],
+    [34, 50],
+    [35, 6],
+    [35, 19],
+    [35, 31],
+    [35, 39],
+    [35, 43],
+    [35, 51],
+    [36, 7],
+    [36, 20],
+    [36, 32],
+    [36, 40],
+    [36, 44],
+    [36, 52],
+    [37, 8],
+    [37, 21],
+    [37, 29],
+    [37, 33],
+    [37, 39],
+    [37, 40],
+    [37, 41],
+    [37, 53],
+    [38, 9],
+    [38, 22],
+    [38, 30],
+    [38, 34],
+    [38, 39],
+    [38, 40],
+    [38, 42],
+    [38, 54],
+    [39, 23],
+    [39, 31],
+    [39, 35],
+    [39, 37],
+    [39, 38],
+    [39, 43],
+    [39, 55],
+    [40, 24],
+    [40, 32],
+    [40, 36],
+    [40, 37],
+    [40, 38],
+    [40, 44],
+    [40, 56],
+    [41, 10],
+    [41, 25],
+    [41, 29],
+    [41, 33],
+    [41, 37],
+    [41, 43],
+    [41, 44],
+    [41, 57],
+    [42, 11],
+    [42, 26],
+    [42, 30],
+    [42, 34],
+    [42, 38],
+    [42, 43],
+    [42, 44],
+    [42, 58],
+    [43, 31],
+    [43, 35],
+    [43, 39],
+    [43, 41],
+    [43, 42],
+    [43, 59],
+    [44, 12],
+    [44, 32],
+    [44, 36],
+    [44, 40],
+    [44, 41],
+    [44, 42],
+    [44, 60],
+    [45, 0],
+    [45, 13],
+    [45, 29],
+    [45, 49],
+    [45, 53],
+    [45, 57],
+    [46, 1],
+    [46, 14],
+    [46, 30],
+    [46, 50],
+    [46, 54],
+    [46, 58],
+    [47, 2],
+    [47, 15],
+    [47, 31],
+    [47, 51],
+    [47, 55],
+    [47, 59],
+    [48, 3],
+    [48, 16],
+    [48, 32],
+    [48, 52],
+    [48, 56],
+    [48, 60],
+    [49, 4],
+    [49, 17],
+    [49, 33],
+    [49, 45],
+    [49, 53],
+    [49, 57],
+    [50, 5],
+    [50, 18],
+    [50, 34],
+    [50, 46],
+    [50, 54],
+    [50, 58],
+    [51, 6],
+    [51, 19],
+    [51, 35],
+    [51, 47],
+    [51, 55],
+    [51, 59],
+    [52, 7],
+    [52, 20],
+    [52, 36],
+    [52, 48],
+    [52, 56],
+    [52, 60],
+    [53, 8],
+    [53, 21],
+    [53, 37],
+    [53, 45],
+    [53, 49],
+    [53, 55],
+    [53, 56],
+    [53, 57],
+    [54, 9],
+    [54, 22],
+    [54, 38],
+    [54, 46],
+    [54, 50],
+    [54, 55],
+    [54, 56],
+    [54, 58],
+    [55, 23],
+    [55, 39],
+    [55, 47],
+    [55, 51],
+    [55, 53],
+    [55, 54],
+    [55, 59],
+    [56, 24],
+    [56, 40],
+    [56, 48],
+    [56, 52],
+    [56, 53],
+    [56, 54],
+    [56, 60],
+    [57, 10],
+    [57, 25],
+    [57, 41],
+    [57, 45],
+    [57, 49],
+    [57, 53],
+    [58, 11],
+    [58, 26],
+    [58, 42],
+    [58, 46],
+    [58, 50],
+    [58, 54],
+    [59, 27],
+    [59, 43],
+    [59, 47],
+    [59, 51],
+    [59, 55],
+    [60, 12],
+    [60, 28],
+    [60, 44],
+    [60, 48],
+    [60, 52],
+    [60, 56],
+  ])
 
-    return Mout
+  rows = IDX[:, 0]
+  cols = IDX[:, 1]
+
+  #mask = jnp.zeros_like(Mout, dtype=bool).at[rows, cols].set(True)
+  #Mout = jnp.where(mask, Mout * omega, Mout)
+  jax.debug.print("omega = {}", omega)
+  jax.debug.print("omega finite? {}", jnp.isfinite(omega))
+  Mout = Mout.at[rows, cols].set(Mout[rows, cols] * omega) """
+
+  Mout = Mout.at[0,2].multiply(omega)
+  Mout = Mout.at[0,3].multiply(omega)
+  Mout = Mout.at[0,4].multiply(omega)
+  Mout = Mout.at[0,8].multiply(omega)
+  Mout = Mout.at[0,10].multiply(omega)
+  Mout = Mout.at[0,13].multiply(omega)
+  Mout = Mout.at[0,29].multiply(omega)
+  Mout = Mout.at[0,45].multiply(omega)
+  Mout = Mout.at[1,2].multiply(omega)
+  Mout = Mout.at[1,3].multiply(omega)
+  Mout = Mout.at[1,5].multiply(omega)
+  Mout = Mout.at[1,9].multiply(omega)
+  Mout = Mout.at[1,11].multiply(omega)
+  Mout = Mout.at[1,14].multiply(omega)
+  Mout = Mout.at[1,30].multiply(omega)
+  Mout = Mout.at[1,46].multiply(omega)
+  Mout = Mout.at[2,0].multiply(omega)
+  Mout = Mout.at[2,1].multiply(omega)
+  Mout = Mout.at[2,6].multiply(omega)
+  Mout = Mout.at[2,31].multiply(omega)
+  Mout = Mout.at[2,47].multiply(omega)
+  Mout = Mout.at[3,0].multiply(omega)
+  Mout = Mout.at[3,1].multiply(omega)
+  Mout = Mout.at[3,7].multiply(omega)
+  Mout = Mout.at[3,12].multiply(omega)
+  Mout = Mout.at[3,32].multiply(omega)
+  Mout = Mout.at[3,48].multiply(omega)
+  Mout = Mout.at[4,0].multiply(omega)
+  Mout = Mout.at[4,8].multiply(omega)
+  Mout = Mout.at[4,10].multiply(omega)
+  Mout = Mout.at[4,17].multiply(omega)
+  Mout = Mout.at[4,33].multiply(omega)
+  Mout = Mout.at[4,49].multiply(omega)
+  Mout = Mout.at[5,1].multiply(omega)
+  Mout = Mout.at[5,9].multiply(omega)
+  Mout = Mout.at[5,11].multiply(omega)
+  Mout = Mout.at[5,18].multiply(omega)
+  Mout = Mout.at[5,34].multiply(omega)
+  Mout = Mout.at[5,50].multiply(omega)
+  Mout = Mout.at[6,2].multiply(omega)
+  Mout = Mout.at[6,19].multiply(omega)
+  Mout = Mout.at[6,35].multiply(omega)
+  Mout = Mout.at[6,51].multiply(omega)
+  Mout = Mout.at[7,3].multiply(omega)
+  Mout = Mout.at[7,12].multiply(omega)
+  Mout = Mout.at[7,20].multiply(omega)
+  Mout = Mout.at[7,36].multiply(omega)
+  Mout = Mout.at[7,52].multiply(omega)
+  Mout = Mout.at[8,0].multiply(omega)
+  Mout = Mout.at[8,4].multiply(omega)
+  Mout = Mout.at[8,10].multiply(omega)
+  Mout = Mout.at[8,21].multiply(omega)
+  Mout = Mout.at[8,37].multiply(omega)
+  Mout = Mout.at[8,53].multiply(omega)
+  Mout = Mout.at[9,1].multiply(omega)
+  Mout = Mout.at[9,5].multiply(omega)
+  Mout = Mout.at[9,11].multiply(omega)
+  Mout = Mout.at[9,22].multiply(omega)
+  Mout = Mout.at[9,38].multiply(omega)
+  Mout = Mout.at[9,54].multiply(omega)
+  Mout = Mout.at[10,0].multiply(omega)
+  Mout = Mout.at[10,4].multiply(omega)
+  Mout = Mout.at[10,8].multiply(omega)
+  Mout = Mout.at[10,12].multiply(omega)
+  Mout = Mout.at[10,25].multiply(omega)
+  Mout = Mout.at[10,41].multiply(omega)
+  Mout = Mout.at[10,57].multiply(omega)
+  Mout = Mout.at[11,1].multiply(omega)
+  Mout = Mout.at[11,5].multiply(omega)
+  Mout = Mout.at[11,9].multiply(omega)
+  Mout = Mout.at[11,12].multiply(omega)
+  Mout = Mout.at[11,26].multiply(omega)
+  Mout = Mout.at[11,42].multiply(omega)
+  Mout = Mout.at[11,58].multiply(omega)
+  Mout = Mout.at[12,3].multiply(omega)
+  Mout = Mout.at[12,7].multiply(omega)
+  Mout = Mout.at[12,10].multiply(omega)
+  Mout = Mout.at[12,11].multiply(omega)
+  Mout = Mout.at[12,28].multiply(omega)
+  Mout = Mout.at[12,44].multiply(omega)
+  Mout = Mout.at[12,60].multiply(omega)
+  Mout = Mout.at[13,0].multiply(omega)
+  Mout = Mout.at[13,17].multiply(omega)
+  Mout = Mout.at[13,21].multiply(omega)
+  Mout = Mout.at[13,25].multiply(omega)
+  Mout = Mout.at[13,29].multiply(omega)
+  Mout = Mout.at[13,45].multiply(omega)
+  Mout = Mout.at[14,1].multiply(omega)
+  Mout = Mout.at[14,18].multiply(omega)
+  Mout = Mout.at[14,22].multiply(omega)
+  Mout = Mout.at[14,26].multiply(omega)
+  Mout = Mout.at[14,30].multiply(omega)
+  Mout = Mout.at[14,46].multiply(omega)
+  Mout = Mout.at[15,19].multiply(omega)
+  Mout = Mout.at[15,23].multiply(omega)
+  Mout = Mout.at[15,27].multiply(omega)
+  Mout = Mout.at[15,31].multiply(omega)
+  Mout = Mout.at[15,47].multiply(omega)
+  Mout = Mout.at[16,20].multiply(omega)
+  Mout = Mout.at[16,24].multiply(omega)
+  Mout = Mout.at[16,28].multiply(omega)
+  Mout = Mout.at[16,32].multiply(omega)
+  Mout = Mout.at[16,48].multiply(omega)
+  Mout = Mout.at[17,4].multiply(omega)
+  Mout = Mout.at[17,13].multiply(omega)
+  Mout = Mout.at[17,21].multiply(omega)
+  Mout = Mout.at[17,25].multiply(omega)
+  Mout = Mout.at[17,33].multiply(omega)
+  Mout = Mout.at[17,49].multiply(omega)
+  Mout = Mout.at[18,5].multiply(omega)
+  Mout = Mout.at[18,14].multiply(omega)
+  Mout = Mout.at[18,22].multiply(omega)
+  Mout = Mout.at[18,26].multiply(omega)
+  Mout = Mout.at[18,34].multiply(omega)
+  Mout = Mout.at[18,50].multiply(omega)
+  Mout = Mout.at[19,6].multiply(omega)
+  Mout = Mout.at[19,15].multiply(omega)
+  Mout = Mout.at[19,23].multiply(omega)
+  Mout = Mout.at[19,27].multiply(omega)
+  Mout = Mout.at[19,35].multiply(omega)
+  Mout = Mout.at[19,51].multiply(omega)
+  Mout = Mout.at[20,7].multiply(omega)
+  Mout = Mout.at[20,16].multiply(omega)
+  Mout = Mout.at[20,24].multiply(omega)
+  Mout = Mout.at[20,28].multiply(omega)
+  Mout = Mout.at[20,36].multiply(omega)
+  Mout = Mout.at[20,52].multiply(omega)
+  Mout = Mout.at[21,8].multiply(omega)
+  Mout = Mout.at[21,13].multiply(omega)
+  Mout = Mout.at[21,17].multiply(omega)
+  Mout = Mout.at[21,23].multiply(omega)
+  Mout = Mout.at[21,24].multiply(omega)
+  Mout = Mout.at[21,25].multiply(omega)
+  Mout = Mout.at[21,37].multiply(omega)
+  Mout = Mout.at[21,53].multiply(omega)
+  Mout = Mout.at[22,9].multiply(omega)
+  Mout = Mout.at[22,14].multiply(omega)
+  Mout = Mout.at[22,18].multiply(omega)
+  Mout = Mout.at[22,23].multiply(omega)
+  Mout = Mout.at[22,24].multiply(omega)
+  Mout = Mout.at[22,26].multiply(omega)
+  Mout = Mout.at[22,38].multiply(omega)
+  Mout = Mout.at[22,54].multiply(omega)
+  Mout = Mout.at[23,15].multiply(omega)
+  Mout = Mout.at[23,19].multiply(omega)
+  Mout = Mout.at[23,21].multiply(omega)
+  Mout = Mout.at[23,22].multiply(omega)
+  Mout = Mout.at[23,27].multiply(omega)
+  Mout = Mout.at[23,39].multiply(omega)
+  Mout = Mout.at[23,55].multiply(omega)
+  Mout = Mout.at[24,16].multiply(omega)
+  Mout = Mout.at[24,20].multiply(omega)
+  Mout = Mout.at[24,21].multiply(omega)
+  Mout = Mout.at[24,22].multiply(omega)
+  Mout = Mout.at[24,28].multiply(omega)
+  Mout = Mout.at[24,40].multiply(omega)
+  Mout = Mout.at[24,56].multiply(omega)
+  Mout = Mout.at[25,10].multiply(omega)
+  Mout = Mout.at[25,13].multiply(omega)
+  Mout = Mout.at[25,17].multiply(omega)
+  Mout = Mout.at[25,21].multiply(omega)
+  Mout = Mout.at[25,41].multiply(omega)
+  Mout = Mout.at[25,57].multiply(omega)
+  Mout = Mout.at[26,11].multiply(omega)
+  Mout = Mout.at[26,14].multiply(omega)
+  Mout = Mout.at[26,18].multiply(omega)
+  Mout = Mout.at[26,22].multiply(omega)
+  Mout = Mout.at[26,42].multiply(omega)
+  Mout = Mout.at[26,58].multiply(omega)
+  Mout = Mout.at[27,15].multiply(omega)
+  Mout = Mout.at[27,19].multiply(omega)
+  Mout = Mout.at[27,23].multiply(omega)
+  Mout = Mout.at[27,59].multiply(omega)
+  Mout = Mout.at[28,12].multiply(omega)
+  Mout = Mout.at[28,16].multiply(omega)
+  Mout = Mout.at[28,20].multiply(omega)
+  Mout = Mout.at[28,24].multiply(omega)
+  Mout = Mout.at[28,60].multiply(omega)
+  Mout = Mout.at[29,0].multiply(omega)
+  Mout = Mout.at[29,13].multiply(omega)
+  Mout = Mout.at[29,32].multiply(omega)
+  Mout = Mout.at[29,33].multiply(omega)
+  Mout = Mout.at[29,37].multiply(omega)
+  Mout = Mout.at[29,41].multiply(omega)
+  Mout = Mout.at[29,45].multiply(omega)
+  Mout = Mout.at[30,1].multiply(omega)
+  Mout = Mout.at[30,14].multiply(omega)
+  Mout = Mout.at[30,32].multiply(omega)
+  Mout = Mout.at[30,34].multiply(omega)
+  Mout = Mout.at[30,38].multiply(omega)
+  Mout = Mout.at[30,42].multiply(omega)
+  Mout = Mout.at[30,46].multiply(omega)
+  Mout = Mout.at[31,2].multiply(omega)
+  Mout = Mout.at[31,15].multiply(omega)
+  Mout = Mout.at[31,32].multiply(omega)
+  Mout = Mout.at[31,35].multiply(omega)
+  Mout = Mout.at[31,39].multiply(omega)
+  Mout = Mout.at[31,43].multiply(omega)
+  Mout = Mout.at[31,47].multiply(omega)
+  Mout = Mout.at[32,3].multiply(omega)
+  Mout = Mout.at[32,16].multiply(omega)
+  Mout = Mout.at[32,29].multiply(omega)
+  Mout = Mout.at[32,30].multiply(omega)
+  Mout = Mout.at[32,31].multiply(omega)
+  Mout = Mout.at[32,36].multiply(omega)
+  Mout = Mout.at[32,40].multiply(omega)
+  Mout = Mout.at[32,44].multiply(omega)
+  Mout = Mout.at[32,48].multiply(omega)
+  Mout = Mout.at[33,4].multiply(omega)
+  Mout = Mout.at[33,17].multiply(omega)
+  Mout = Mout.at[33,29].multiply(omega)
+  Mout = Mout.at[33,37].multiply(omega)
+  Mout = Mout.at[33,41].multiply(omega)
+  Mout = Mout.at[33,49].multiply(omega)
+  Mout = Mout.at[34,5].multiply(omega)
+  Mout = Mout.at[34,18].multiply(omega)
+  Mout = Mout.at[34,30].multiply(omega)
+  Mout = Mout.at[34,38].multiply(omega)
+  Mout = Mout.at[34,42].multiply(omega)
+  Mout = Mout.at[34,50].multiply(omega)
+  Mout = Mout.at[35,6].multiply(omega)
+  Mout = Mout.at[35,19].multiply(omega)
+  Mout = Mout.at[35,31].multiply(omega)
+  Mout = Mout.at[35,39].multiply(omega)
+  Mout = Mout.at[35,43].multiply(omega)
+  Mout = Mout.at[35,51].multiply(omega)
+  Mout = Mout.at[36,7].multiply(omega)
+  Mout = Mout.at[36,20].multiply(omega)
+  Mout = Mout.at[36,32].multiply(omega)
+  Mout = Mout.at[36,40].multiply(omega)
+  Mout = Mout.at[36,44].multiply(omega)
+  Mout = Mout.at[36,52].multiply(omega)
+  Mout = Mout.at[37,8].multiply(omega)
+  Mout = Mout.at[37,21].multiply(omega)
+  Mout = Mout.at[37,29].multiply(omega)
+  Mout = Mout.at[37,33].multiply(omega)
+  Mout = Mout.at[37,39].multiply(omega)
+  Mout = Mout.at[37,40].multiply(omega)
+  Mout = Mout.at[37,41].multiply(omega)
+  Mout = Mout.at[37,53].multiply(omega)
+  Mout = Mout.at[38,9].multiply(omega)
+  Mout = Mout.at[38,22].multiply(omega)
+  Mout = Mout.at[38,30].multiply(omega)
+  Mout = Mout.at[38,34].multiply(omega)
+  Mout = Mout.at[38,39].multiply(omega)
+  Mout = Mout.at[38,40].multiply(omega)
+  Mout = Mout.at[38,42].multiply(omega)
+  Mout = Mout.at[38,54].multiply(omega)
+  Mout = Mout.at[39,23].multiply(omega)
+  Mout = Mout.at[39,31].multiply(omega)
+  Mout = Mout.at[39,35].multiply(omega)
+  Mout = Mout.at[39,37].multiply(omega)
+  Mout = Mout.at[39,38].multiply(omega)
+  Mout = Mout.at[39,43].multiply(omega)
+  Mout = Mout.at[39,55].multiply(omega)
+  Mout = Mout.at[40,24].multiply(omega)
+  Mout = Mout.at[40,32].multiply(omega)
+  Mout = Mout.at[40,36].multiply(omega)
+  Mout = Mout.at[40,37].multiply(omega)
+  Mout = Mout.at[40,38].multiply(omega)
+  Mout = Mout.at[40,44].multiply(omega)
+  Mout = Mout.at[40,56].multiply(omega)
+  Mout = Mout.at[41,10].multiply(omega)
+  Mout = Mout.at[41,25].multiply(omega)
+  Mout = Mout.at[41,29].multiply(omega)
+  Mout = Mout.at[41,33].multiply(omega)
+  Mout = Mout.at[41,37].multiply(omega)
+  Mout = Mout.at[41,43].multiply(omega)
+  Mout = Mout.at[41,44].multiply(omega)
+  Mout = Mout.at[41,57].multiply(omega)
+  Mout = Mout.at[42,11].multiply(omega)
+  Mout = Mout.at[42,26].multiply(omega)
+  Mout = Mout.at[42,30].multiply(omega)
+  Mout = Mout.at[42,34].multiply(omega)
+  Mout = Mout.at[42,38].multiply(omega)
+  Mout = Mout.at[42,43].multiply(omega)
+  Mout = Mout.at[42,44].multiply(omega)
+  Mout = Mout.at[42,58].multiply(omega)
+  Mout = Mout.at[43,31].multiply(omega)
+  Mout = Mout.at[43,35].multiply(omega)
+  Mout = Mout.at[43,39].multiply(omega)
+  Mout = Mout.at[43,41].multiply(omega)
+  Mout = Mout.at[43,42].multiply(omega)
+  Mout = Mout.at[43,59].multiply(omega)
+  Mout = Mout.at[44,12].multiply(omega)
+  Mout = Mout.at[44,32].multiply(omega)
+  Mout = Mout.at[44,36].multiply(omega)
+  Mout = Mout.at[44,40].multiply(omega)
+  Mout = Mout.at[44,41].multiply(omega)
+  Mout = Mout.at[44,42].multiply(omega)
+  Mout = Mout.at[44,60].multiply(omega)
+  Mout = Mout.at[45,0].multiply(omega)
+  Mout = Mout.at[45,13].multiply(omega)
+  Mout = Mout.at[45,29].multiply(omega)
+  Mout = Mout.at[45,49].multiply(omega)
+  Mout = Mout.at[45,53].multiply(omega)
+  Mout = Mout.at[45,57].multiply(omega)
+  Mout = Mout.at[46,1].multiply(omega)
+  Mout = Mout.at[46,14].multiply(omega)
+  Mout = Mout.at[46,30].multiply(omega)
+  Mout = Mout.at[46,50].multiply(omega)
+  Mout = Mout.at[46,54].multiply(omega)
+  Mout = Mout.at[46,58].multiply(omega)
+  Mout = Mout.at[47,2].multiply(omega)
+  Mout = Mout.at[47,15].multiply(omega)
+  Mout = Mout.at[47,31].multiply(omega)
+  Mout = Mout.at[47,51].multiply(omega)
+  Mout = Mout.at[47,55].multiply(omega)
+  Mout = Mout.at[47,59].multiply(omega)
+  Mout = Mout.at[48,3].multiply(omega)
+  Mout = Mout.at[48,16].multiply(omega)
+  Mout = Mout.at[48,32].multiply(omega)
+  Mout = Mout.at[48,52].multiply(omega)
+  Mout = Mout.at[48,56].multiply(omega)
+  Mout = Mout.at[48,60].multiply(omega)
+  Mout = Mout.at[49,4].multiply(omega)
+  Mout = Mout.at[49,17].multiply(omega)
+  Mout = Mout.at[49,33].multiply(omega)
+  Mout = Mout.at[49,45].multiply(omega)
+  Mout = Mout.at[49,53].multiply(omega)
+  Mout = Mout.at[49,57].multiply(omega)
+  Mout = Mout.at[50,5].multiply(omega)
+  Mout = Mout.at[50,18].multiply(omega)
+  Mout = Mout.at[50,34].multiply(omega)
+  Mout = Mout.at[50,46].multiply(omega)
+  Mout = Mout.at[50,54].multiply(omega)
+  Mout = Mout.at[50,58].multiply(omega)
+  Mout = Mout.at[51,6].multiply(omega)
+  Mout = Mout.at[51,19].multiply(omega)
+  Mout = Mout.at[51,35].multiply(omega)
+  Mout = Mout.at[51,47].multiply(omega)
+  Mout = Mout.at[51,55].multiply(omega)
+  Mout = Mout.at[51,59].multiply(omega)
+  Mout = Mout.at[52,7].multiply(omega)
+  Mout = Mout.at[52,20].multiply(omega)
+  Mout = Mout.at[52,36].multiply(omega)
+  Mout = Mout.at[52,48].multiply(omega)
+  Mout = Mout.at[52,56].multiply(omega)
+  Mout = Mout.at[52,60].multiply(omega)
+  Mout = Mout.at[53,8].multiply(omega)
+  Mout = Mout.at[53,21].multiply(omega)
+  Mout = Mout.at[53,37].multiply(omega)
+  Mout = Mout.at[53,45].multiply(omega)
+  Mout = Mout.at[53,49].multiply(omega)
+  Mout = Mout.at[53,55].multiply(omega)
+  Mout = Mout.at[53,56].multiply(omega)
+  Mout = Mout.at[53,57].multiply(omega)
+  Mout = Mout.at[54,9].multiply(omega)
+  Mout = Mout.at[54,22].multiply(omega)
+  Mout = Mout.at[54,38].multiply(omega)
+  Mout = Mout.at[54,46].multiply(omega)
+  Mout = Mout.at[54,50].multiply(omega)
+  Mout = Mout.at[54,55].multiply(omega)
+  Mout = Mout.at[54,56].multiply(omega)
+  Mout = Mout.at[54,58].multiply(omega)
+  Mout = Mout.at[55,23].multiply(omega)
+  Mout = Mout.at[55,39].multiply(omega)
+  Mout = Mout.at[55,47].multiply(omega)
+  Mout = Mout.at[55,51].multiply(omega)
+  Mout = Mout.at[55,53].multiply(omega)
+  Mout = Mout.at[55,54].multiply(omega)
+  Mout = Mout.at[55,59].multiply(omega)
+  Mout = Mout.at[56,24].multiply(omega)
+  Mout = Mout.at[56,40].multiply(omega)
+  Mout = Mout.at[56,48].multiply(omega)
+  Mout = Mout.at[56,52].multiply(omega)
+  Mout = Mout.at[56,53].multiply(omega)
+  Mout = Mout.at[56,54].multiply(omega)
+  Mout = Mout.at[56,60].multiply(omega)
+  Mout = Mout.at[57,10].multiply(omega)
+  Mout = Mout.at[57,25].multiply(omega)
+  Mout = Mout.at[57,41].multiply(omega)
+  Mout = Mout.at[57,45].multiply(omega)
+  Mout = Mout.at[57,49].multiply(omega)
+  Mout = Mout.at[57,53].multiply(omega)
+  Mout = Mout.at[58,11].multiply(omega)
+  Mout = Mout.at[58,26].multiply(omega)
+  Mout = Mout.at[58,42].multiply(omega)
+  Mout = Mout.at[58,46].multiply(omega)
+  Mout = Mout.at[58,50].multiply(omega)
+  Mout = Mout.at[58,54].multiply(omega)
+  Mout = Mout.at[59,27].multiply(omega)
+  Mout = Mout.at[59,43].multiply(omega)
+  Mout = Mout.at[59,47].multiply(omega)
+  Mout = Mout.at[59,51].multiply(omega)
+  Mout = Mout.at[59,55].multiply(omega)
+  Mout = Mout.at[60,12].multiply(omega)
+  Mout = Mout.at[60,28].multiply(omega)
+  Mout = Mout.at[60,44].multiply(omega)
+  Mout = Mout.at[60,48].multiply(omega)
+  Mout = Mout.at[60,52].multiply(omega)
+  Mout = Mout.at[60,56].multiply(omega)
+
+  #Mout = Mout.at[rows, cols].multiply(omega) # does not work because JAX cannot prove rows, cols are unique, treats them as potentially dynamic and hence does not compute gradient
+
+  Mout = diag_update(Mout, pimult)
+
+  return Mout
