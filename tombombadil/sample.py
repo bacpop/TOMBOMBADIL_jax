@@ -221,7 +221,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
 
             #jax.block_until_ready(params)
         #jax.profiler.stop_trace()
-        params.block_until_ready()
+        #params.block_until_ready()
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     print('Final parameters: ',((params)))

@@ -1,3 +1,4 @@
+import jax
 from jax import jit
 import jax.numpy as jnp
 
@@ -553,16 +554,24 @@ non_omega_mat = jnp.array(([[ 1.,  1., 0., 0., 0.,  1.,  1.,  1., 0.,  1., 0.,  
          1.,  1.,  1.,  1.,  1., 0.,  1.,  1.,  1., 0.,  1.,  1.,  1.,
         0.,  1.,  1.,  1., 0.,  1.,  1.,  1.,  1.]]))
 
-#@jit
+@jax.profiler.annotate_function
+@jit
 def diag_update(M, pimult):
     # Compute the diagonal
     # I think this might be the same as
     # M += jnp.diag(jnp.einsum('ij,ij->i', M, pi_mult))
     # but check this doesn't add loads of zeros
     # check https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.fori_loop.html
-    for i in range(61):
-        M = M.at[i, i].set(0)
-        M = M.at[i, i].set(-jnp.dot(M[i, :], pimult[i, :]))
+    #for i in range(61):
+    #    M = M.at[i, i].set(0)
+    #    M = M.at[i, i].set(-jnp.dot(M[i, :], pimult[i, :]))
+    M = M.at[jnp.diag_indices(61)].set(0.0)
+    diag_vals = -jnp.sum(M * pimult, axis=1)
+    M = M.at[jnp.diag_indices(M.shape[0])].set(diag_vals)
+    # mask out diagonal contribution in the row sum
+    #row_sum = jnp.sum(M * pimult, axis=1)
+    #diag_vals = -(row_sum - M.diagonal() * pimult.diagonal())
+    #M = M.at[jnp.diag_indices(M.shape[0])].set(diag_vals)
     return M
 
 @jit
