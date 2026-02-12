@@ -9,6 +9,7 @@ import jax.scipy.stats as stats
 import jax.scipy.special as special
 from jax.scipy.special import gammaln
 import optax
+from jax import jit
 
 from .gtr import build_GTR
 from .likelihood import gen_alpha
@@ -18,6 +19,7 @@ from .likelihood import gen_alpha
 #from jax.profiler import StepTraceAnnotation
 import jax.profiler
 
+@jit
 def my_dirichlet_multinomial_logpmf(x, a):
     x = jnp.asarray(x)
     a = jnp.asarray(a)
@@ -42,7 +44,7 @@ def my_dirichlet_multinomial_logpmf(x, a):
     return term1 + term2 + term3 # gives 1407.2288
 
 # This version is adapted from the scipy implementation
-@jax.profiler.annotate_function
+#@jax.profiler.annotate_function
 def my_dirichlet_multinomial_logpmf_2(x, a):
     x = jnp.asarray(x)
     a = jnp.asarray(a)
@@ -59,6 +61,7 @@ def my_dirichlet_multinomial_logpmf_2(x, a):
 
     return out
 @jax.profiler.annotate_function
+@jit
 def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, pimat, pimatinv, pimult, obs_vec):
     # Calculate substitution rate matrix under neutrality
     #print(pimat)
@@ -193,7 +196,6 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         "epsilon": "scalar",
         "eta": "scalar",
         "theta": "scalar",
-        "omega": "scalar",
     },
 )
 
