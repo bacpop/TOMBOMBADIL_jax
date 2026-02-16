@@ -56,7 +56,7 @@ def my_dirichlet_multinomial_logpmf_2(x, a):
     return out
 
 @jit
-def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, pimat, pimatinv, pimult, obs_vec):
+def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, pimat, pimatinv, pimult, obs_vec):
     # Calculate substitution rate matrix under neutrality
     #print(pimat)
     #print(pimult)
@@ -95,8 +95,8 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     return special.logsumexp(log_prob + log_pi, axis=0) # check that these go in as different arguments
 
 def transforms(X, pi_eq):
-    N = np.sum(X, 0)
-    n_loci = len(N)
+    #N = np.sum(X, 0)
+    #n_loci = len(N)
 
     # pi transforms
     log_pi = np.log(pi_eq)
@@ -109,13 +109,13 @@ def transforms(X, pi_eq):
             pimult[i, j] = np.sqrt(pi_eq[j] / pi_eq[i])
             #pimult = pimult.at[i,j].set(jnp.sqrt(pi_eq[j] / pi_eq[i]))
 
-    return N, n_loci, log_pi, pimat, pimatinv, pimult
+    return log_pi, pimat, pimatinv, pimult
 
-def make_fn(pi_eq, log_pi, Ncol, pimat, pimatinv, pimult, X): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
+def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
 
     batched_loss = jax.vmap(
         model,
-        in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, None, 1)  # map over matrices + data
+        in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, 1)  # map over matrices + data
     )
 
     #def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
@@ -125,7 +125,7 @@ def make_fn(pi_eq, log_pi, Ncol, pimat, pimatinv, pimult, X): # closure for defi
         #print('x: ',x)
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
-        losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, Ncol, pimat, pimatinv, pimult, X)
+        losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
         #print('losses: ',losses)
         return jnp.mean(losses)
     return f
@@ -149,13 +149,13 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X[15,:] = 4
     #X[47,:] = 19
     #col = 0
-    N, l, log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
+    log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
     #print("X",X)
 
     logging.info("Compiling model...") # jax first compiles code
 
-    fn = make_fn(pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
+    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X)
     
     # TODO: set threads/device/optim options
     # TODO: work for multiple codons

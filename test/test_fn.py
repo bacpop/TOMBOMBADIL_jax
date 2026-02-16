@@ -13,11 +13,10 @@ class Testdiv(unittest.TestCase):
             X = np.zeros((61,1))
             X[15,:] = 4
             X[47,:] = 19
-            col = 0
             pi_test = np.array([1/61 for i in range(61)])
-            N, l, log_pi, pimat, pimatinv, pimult = transforms(X, pi_test)
+            log_pi, pimat, pimatinv, pimult = transforms(X, pi_test)
 
-            fn = make_fn(pi_test, log_pi, N[col], pimat, pimatinv, pimult, X)
+            fn = make_fn(pi_test, log_pi, pimat, pimatinv, pimult, X)
             self.assertAlmostEqual(fn({"alpha": 1, "beta": 1, "gamma": 1, "delta": 1, "epsilon": 1, "eta": 1, "theta": 0.5, "omega": jnp.repeat(jnp.array(0.5, dtype=jnp.float32), jnp.size(X, axis=1))}), jnp.array(-10.213031, dtype=jnp.float32), places=3)
 
 if __name__ == '__main__':
