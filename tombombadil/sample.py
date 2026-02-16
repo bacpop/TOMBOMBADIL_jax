@@ -141,9 +141,9 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X[47,7] = 19
     #X[15,7] = 4
     #X[47,7] = 19
-    #X = np.zeros((61,1))
-    #X[15,:] = 4
-    #X[47,:] = 19
+    X = np.zeros((61,1))
+    X[15,:] = 4
+    X[47,:] = 19
     #col = 0
     #X = np.zeros((61,10))
     #X[15,:] = 4
@@ -183,8 +183,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #solver = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-2)) # define optimizer (adam, with clipping)
     solver = optax.multi_transform(
     {
-        "vec": optax.adam(1e-5),
-        "scalar": optax.adam(1e-3),
+        "vec": optax.adam(1e-3),
+        "scalar": optax.adam(1e-2),
     },
     param_labels={
         "omega": "vec",
@@ -203,13 +203,16 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(10): # define number of iterations of optimizer
+    for _ in range(100): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
+        print('Objective function: ',(loss(params)))
+        print('parameters: ',(jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"], params["omega"][0]])))
 
     print('Final likelihood: ', fn(params)) # print final likelihood
-    print('Final parameters: ',((params)))
+    #print('Final parameters: ',((params)))
+    print('Final parameters: ',((params["omega"])[:10])) # only print first ten elements of omega parameters
     print('Objective function: ',(loss(params)))
 
 
