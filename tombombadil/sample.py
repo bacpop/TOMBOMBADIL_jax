@@ -111,6 +111,14 @@ def transforms(X, pi_eq):
 
     return log_pi, pimat, pimatinv, pimult
 
+def positive(a):
+        eps = 1e-6
+        return jax.nn.softplus(a) + eps
+
+def softplus_inverse(y, eps=1e-6):
+    z = y - eps
+    return jnp.log(jnp.expm1(z))
+    
 def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
 
     batched_loss = jax.vmap(
@@ -120,11 +128,14 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X): # closure for defining f
 
     #def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
 
-    def f(x): 
+
+
+    def f(raw_x): 
         #x = jnp.exp(x)
         #print('x: ',x)
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
+        x = jax.tree.map(positive, raw_x)
         losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
         #print('losses: ',losses)
         return jnp.mean(losses)
@@ -165,14 +176,14 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #params = jnp.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
     #params = jnp.array([1, 1, 1, 1, 1, 1, 0.5, 0.5]) # define start parameters for optimization
     params = { # define parameters as dictionary to allow flexible (data-informed)size for omega
-        "alpha": jnp.array(1.0, dtype=jnp.float32),
-        "beta": jnp.array(1.0, dtype=jnp.float32),
-        "gamma": jnp.array(1.0, dtype=jnp.float32),
-        "delta": jnp.array(1.0, dtype=jnp.float32),
-        "epsilon": jnp.array(1.0, dtype=jnp.float32),
-        "eta": jnp.array(1.0, dtype=jnp.float32),
-        "theta": jnp.array(0.5, dtype=jnp.float32),
-        "omega": jnp.repeat(jnp.array(0.5, dtype=jnp.float32), jnp.size(X, axis=1)),
+        "alpha": jnp.array(softplus_inverse(1), dtype=jnp.float32),
+        "beta": jnp.array(softplus_inverse(1), dtype=jnp.float32),
+        "gamma": jnp.array(softplus_inverse(1), dtype=jnp.float32),
+        "delta": jnp.array(softplus_inverse(1), dtype=jnp.float32),
+        "epsilon": jnp.array(softplus_inverse(1), dtype=jnp.float32),
+        "eta": jnp.array(softplus_inverse(1), dtype=jnp.float32),
+        "theta": jnp.array(softplus_inverse(0.5), dtype=jnp.float32),
+        "omega": jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float32), jnp.size(X, axis=1)),
     }
     #print('Parameters: ',((params)))
 
@@ -183,8 +194,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #solver = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-2)) # define optimizer (adam, with clipping)
     solver = optax.multi_transform(
     {
-        "vec": optax.adam(1e-3),
-        "scalar": optax.adam(1e-2),
+        "vec": optax.adam(1e-1),
+        "scalar": optax.adam(1e-1),
     },
     param_labels={
         "omega": "vec",
@@ -208,11 +219,11 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
         print('Objective function: ',(loss(params)))
-        print('parameters: ',(jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"], params["omega"][0]])))
+        print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"], params["omega"][0]])))
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     #print('Final parameters: ',((params)))
-    print('Final parameters: ',((params["omega"])[:10])) # only print first ten elements of omega parameters
+    print('Final omega: ',params["omega"][:10]) # only print first ten elements of omega parameters
     print('Objective function: ',(loss(params)))
 
 
