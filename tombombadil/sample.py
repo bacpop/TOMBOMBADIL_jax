@@ -152,14 +152,16 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X[47,7] = 19
     #X[15,7] = 4
     #X[47,7] = 19
-    X = np.zeros((61,1))
-    X[15,:] = 4
-    X[47,:] = 19
+    #X = np.zeros((61,1))
+    #X[15,:] = 4
+    #X[47,:] = 19
     #col = 0
     #X = np.zeros((61,10))
     #X[15,:] = 4
     #X[47,:] = 19
     #col = 0
+    X = np.array(X[:,11:16]) # found some diversity in these columns
+    #print("X shape",X.shape)
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
     #print("X",X)
@@ -214,16 +216,17 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(100): # define number of iterations of optimizer
+    for _ in range(500): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
         print('Objective function: ',(loss(params)))
         print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"], params["omega"][0]])))
+        print('omegas: ', jax.tree.map(positive, params["omega"]))
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     #print('Final parameters: ',((params)))
-    print('Final omega: ',params["omega"][:10]) # only print first ten elements of omega parameters
+    #print('Final omega: ',params["omega"][:10]) # only print first ten elements of omega parameters
     print('Objective function: ',(loss(params)))
 
 
