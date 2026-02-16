@@ -14,11 +14,6 @@ from jax import jit
 from .gtr import build_GTR
 from .likelihood import gen_alpha
 
-#from jax import profiler
-#profiler.start_trace("/tmp/jax-trace")
-#from jax.profiler import StepTraceAnnotation
-import jax.profiler
-
 @jit
 def my_dirichlet_multinomial_logpmf(x, a):
     x = jnp.asarray(x)
@@ -44,7 +39,6 @@ def my_dirichlet_multinomial_logpmf(x, a):
     return term1 + term2 + term3 # gives 1407.2288
 
 # This version is adapted from the scipy implementation
-#@jax.profiler.annotate_function
 def my_dirichlet_multinomial_logpmf_2(x, a):
     x = jnp.asarray(x)
     a = jnp.asarray(a)
@@ -60,7 +54,7 @@ def my_dirichlet_multinomial_logpmf_2(x, a):
     # out = jnp.place(out, N != x.sum(axis=-1), -jnp.inf, inplace=False)
 
     return out
-@jax.profiler.annotate_function
+
 @jit
 def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, pimat, pimatinv, pimult, obs_vec):
     # Calculate substitution rate matrix under neutrality
@@ -125,7 +119,7 @@ def make_fn(pi_eq, log_pi, Ncol, pimat, pimatinv, pimult, X): # closure for defi
     )
 
     #def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
-    #@jax.profiler.annotate_function
+
     def f(x): 
         #x = jnp.exp(x)
         #print('x: ',x)
@@ -209,59 +203,10 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    # executing these steps once so they are compiled -- cleaner for profiling (?)
-    grad = jax.grad(loss)(params)
-    updates, opt_state = solver.update(grad, opt_state, params)
-    params = optax.apply_updates(params, updates)
-    jax.block_until_ready(params)
-    with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
-        for _ in range(10): # define number of iterations of optimizer
-            with jax.profiler.TraceAnnotation("grad"):
-                grad = jax.grad(loss)(params) # compute gradient
-            #print('Gradient: ',((grad)))
-            with jax.profiler.TraceAnnotation("update_states"):
-                updates, opt_state = solver.update(grad, opt_state, params) # update states
-            with jax.profiler.TraceAnnotation("update_params"):
-                params = optax.apply_updates(params, updates) # update parameters
-            #print('updates: ',((updates)))
-            #print('Parameters: ',((params)))
-            #print('Objective function: ',(loss(params)))
-
-            
-        jax.block_until_ready(grad)
-        jax.block_until_ready(opt_state)
-        jax.block_until_ready(params)
-        #jax.profiler.stop_trace()
-        #params.block_until_ready()
-        
-    """ 
-    # alternative: define training function (might be better for run time but for profiling it is really hard to see what takes how long)
-    @jit
-    def train_step(params, opt_state):
-        with jax.profiler.TraceAnnotation("grad"):
-            grad = jax.grad(loss)(params) # compute gradient
-        with jax.profiler.TraceAnnotation("update_states"):
-            updates, opt_state = solver.update(grad, opt_state, params) # update states
-        with jax.profiler.TraceAnnotation("update_params"):
-            params = optax.apply_updates(params, updates) # update parameters
-        return params, opt_state
-    
-    # compilation
-    params, opt_state = train_step(params, opt_state)
-    jax.block_until_ready(params)
-
-    # profile one step
-    with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
-        with jax.profiler.StepTraceAnnotation("train_step"):
-            params, opt_state = train_step(params, opt_state)
-            jax.block_until_ready(params)
-    
-    with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
-        for _ in range(10): # define number of iterations of optimizer
-            #with jax.profiler.StepTraceAnnotation("train_step_here"):
-                params, opt_state = train_step(params, opt_state)
-                jax.block_until_ready(params) """
-
+    for _ in range(10): # define number of iterations of optimizer
+        grad = jax.grad(loss)(params) # compute gradient
+        updates, opt_state = solver.update(grad, opt_state, params) # update states
+        params = optax.apply_updates(params, updates) # update parameters
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     print('Final parameters: ',((params)))
