@@ -51,7 +51,7 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, N, 
     #print(pimult)
     #A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix
     #A = build_GTR(1, 1, 1, 1, 1, 1, 1, pimat, pimult) # same as NY98?
-    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # 61x61 subst rate matrix # better than fixing omega to 1?
+    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix # better than fixing omega to 1?
     #print(A) # is all zeros at the moment
     #print(pi_eq)
     #print(jnp.diagonal(A))
@@ -134,6 +134,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     
     logging.info("Fitting model...")
     opt_state = solver.init(params)
+    print('Objective function: ',(loss(params)))
     for _ in range(20): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         #print('Gradient: ',((grad)))
