@@ -208,8 +208,9 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     grad = jax.grad(loss)(params)
     updates, opt_state = solver.update(grad, opt_state, params)
     params = optax.apply_updates(params, updates)
+    jax.block_until_ready(params)
     with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
-        for _ in range(5): # define number of iterations of optimizer
+        for _ in range(10): # define number of iterations of optimizer
             with jax.profiler.TraceAnnotation("grad"):
                 grad = jax.grad(loss)(params) # compute gradient
             #print('Gradient: ',((grad)))
@@ -221,9 +222,41 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
             #print('Parameters: ',((params)))
             #print('Objective function: ',(loss(params)))
 
-            #jax.block_until_ready(params)
+            
+        jax.block_until_ready(grad)
+        jax.block_until_ready(opt_state)
+        jax.block_until_ready(params)
         #jax.profiler.stop_trace()
         #params.block_until_ready()
+        
+    """ 
+    # alternative: define training function (might be better for run time but for profiling it is really hard to see what takes how long)
+    @jit
+    def train_step(params, opt_state):
+        with jax.profiler.TraceAnnotation("grad"):
+            grad = jax.grad(loss)(params) # compute gradient
+        with jax.profiler.TraceAnnotation("update_states"):
+            updates, opt_state = solver.update(grad, opt_state, params) # update states
+        with jax.profiler.TraceAnnotation("update_params"):
+            params = optax.apply_updates(params, updates) # update parameters
+        return params, opt_state
+    
+    # compilation
+    params, opt_state = train_step(params, opt_state)
+    jax.block_until_ready(params)
+
+    # profile one step
+    with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
+        with jax.profiler.StepTraceAnnotation("train_step"):
+            params, opt_state = train_step(params, opt_state)
+            jax.block_until_ready(params)
+    
+    with jax.profiler.trace("/tmp/jax_trace", create_perfetto_link=True):
+        for _ in range(10): # define number of iterations of optimizer
+            #with jax.profiler.StepTraceAnnotation("train_step_here"):
+                params, opt_state = train_step(params, opt_state)
+                jax.block_until_ready(params) """
+
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     print('Final parameters: ',((params)))
