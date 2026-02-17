@@ -119,7 +119,7 @@ def softplus_inverse(y, eps=1e-6):
     z = y - eps
     return jnp.log(jnp.expm1(z))
     
-def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
+def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
 
     batched_loss = jax.vmap(
         model,
@@ -128,14 +128,20 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X): # closure for defining f
 
     #def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
 
-
-
     def f(raw_x): 
+        
         #x = jnp.exp(x)
         #print('x: ',x)
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         x = jax.tree.map(positive, raw_x)
+
+        x["omega"] = jnp.where(
+            mask == 1,
+            x["omega"],
+            jax.lax.stop_gradient(x["omega"])
+        )
+
         losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
         #print('losses: ',losses)
         return jnp.mean(losses)
@@ -160,15 +166,26 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X[15,:] = 4
     #X[47,:] = 19
     #col = 0
-    X = np.array(X[:,11:16]) # found some diversity in these columns
+    #X = np.array(X[:,11:16]) # found some diversity in these columns
+    X = np.array(X[:,11:18]) # found some diversity in these columns, and last column has no diversity
     #print("X shape",X.shape)
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
     #print("X",X)
 
+    # calculate mask for masking parts of the alignment where there is no diversity
+    # this will allow using these position for calculating gradient for constant parameters but excludes omega calculation for these positions
+    col_max = np.max(X, axis=0) # finds maximum value per column in X
+    col_sum = np.sum(X, axis=0) # calculates column sum
+    mask = np.where(col_max == col_sum, 0, 1) # create mask for positions without diversity
+    #print("col_max",col_max)
+    #print("col_sum",col_sum)
+    #print("mask",mask)
+    #mask = mask.at[0].set(0.0)
+
     logging.info("Compiling model...") # jax first compiles code
 
-    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X)
+    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
     
     # TODO: set threads/device/optim options
     # TODO: work for multiple codons
@@ -216,12 +233,12 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(500): # define number of iterations of optimizer
+    for _ in range(300): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
         print('Objective function: ',(loss(params)))
-        print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"], params["omega"][0]])))
+        print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]])))
         print('omegas: ', jax.tree.map(positive, params["omega"]))
 
     print('Final likelihood: ', fn(params)) # print final likelihood

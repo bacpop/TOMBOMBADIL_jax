@@ -16,8 +16,9 @@ class Testdiv(unittest.TestCase):
             X[47,:] = 19
             pi_test = np.array([1/61 for i in range(61)])
             log_pi, pimat, pimatinv, pimult = transforms(X, pi_test)
+            mask = jnp.ones(1)
 
-            fn = make_fn(pi_test, log_pi, pimat, pimatinv, pimult, X)
+            fn = make_fn(pi_test, log_pi, pimat, pimatinv, pimult, X, mask)
             self.assertAlmostEqual(fn({"alpha": softplus_inverse(1), "beta": softplus_inverse(1), "gamma": softplus_inverse(1), "delta": softplus_inverse(1), "epsilon": softplus_inverse(1), "eta": softplus_inverse(1), "theta": softplus_inverse(0.5), "omega": jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float32), jnp.size(X, axis=1))}), jnp.array(-10.213031, dtype=jnp.float32), places=3)
 
 if __name__ == '__main__':
