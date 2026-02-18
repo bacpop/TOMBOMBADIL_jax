@@ -12,10 +12,10 @@ from .gtr import build_GTR
 def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #print("A", A[7, ])
     mutmat = update_GTR(A, omega, pimult)
-    #mutmat = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # compared these two versions (needs passing args to gen_alpha but update_GTR slightly better)
+    #mutmat = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # compared these two versions (needs passing args to gen_alpha but update_GTR slightly faster)
     #print("mutmat", mutmat)
 
-    eps = 1e-4
+    eps = 1e-6
     mutmat = mutmat + eps * jnp.eye(mutmat.shape[-1]) # add jitter to diagonal (avoids repeated eigenvalues --> eigenvectors are not uniquely defined --> gradient of eigenvectors is undefined / discontinuous --> nans in optimizer)
     # supposedly does not affect the model much (--> might need to confirm this later)
 
@@ -51,7 +51,7 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #print("m_AB", m_AB[31, ]) 
     #print("m_AB2", m_AB[7, ])
     #### agrees with stan version up to here
-
+    #m_AB = jnp.where(jnp.isnan(m_AB), 1.0e-6, m_AB) tried this but not sure it's better, real question is where the nans come from
     #print("m_AB", m_AB)
     #print((m_AB.max()))
     # Normalise by m_AA
@@ -67,6 +67,7 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #        if m_AB[i,j] < 0: 
     #            m_AB = m_AB.at[i,j].set(1.0e-06)
     
+    #m_AB = jnp.where(m_AB < 1.0e-6, 1.0e-6, m_AB) # tried this but not sure it's better
     m_AB = jnp.where(m_AB < 0, 1.0e-6, m_AB) # better with jax because if can lead to error "Attempted boolean conversion of traced array with shape bool[]"
 
     #plt.matshow(m_AB)

@@ -17,7 +17,7 @@ from .likelihood import gen_alpha
 @jit
 def my_dirichlet_multinomial_logpmf(x, a):
     x = jnp.asarray(x)
-    a = jnp.asarray(a)
+    #a = jnp.asarray(a)
 
     N = jnp.sum(x, axis=-1)
     a0 = jnp.sum(a, axis=-1)
@@ -32,8 +32,10 @@ def my_dirichlet_multinomial_logpmf(x, a):
     #jax.debug.print("x = {x}", x=x)
     #jax.debug.print("a = {a}", a=a)
     #jax.debug.print("a = {a}", a=a)
-    #test = gammaln(x)
+    #test = gammaln(a)
     #jax.debug.print("test = {test}", test=test)
+    #jax.debug.print("term1 = {term1}", term1=term1)
+    #jax.debug.print("term2 = {term2}", term2=term2)
     #jax.debug.print("term3 = {term3}", term3=term3)
 
     return term1 + term2 + term3 # gives 1407.2288
@@ -71,16 +73,20 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, pim
     # Calculate substitution rate matrix
     scale = (mu / 2.0) / meanrate
 
-    alpha = gen_alpha(omega, A, pimat, pimult, pimatinv, scale)
+    A2 = gen_alpha(omega, A, pimat, pimult, pimatinv, scale)
     #alpha = gen_alpha(omega, A, pimat, pimult, pimatinv, scale, alpha, beta, gamma, delta, epsilon, eta) # just for comparing runtime between build_GTR and update_GTR
     #print('alpha: ',alpha)
     #print("obs_vec: ", obs_vec)
     #print("N: ", N)
+    #jax.debug.print("alpha = {alpha}", alpha=alpha)
+    #jax.debug.print("A = {A}", A=A)
+    #jax.debug.print("A2 = {A2}", A2=A2) # these calculations are done twice in one step (jit?) and the second time some NaNs appear in A
+    # it seems to come from the parameters but not sure? my analysis in test_fn suggests that the likelihood becomes zero with omega close to zero, no NaNs in parameters needed...?
     #print(np.sum(alpha,axis=1).tolist()) # alpha rows clearly do not sum to one but this is what the pmf is expecting -- a problem? no, for dirichlet not a problem
     #log_prob = scipy.stats.multinomial.pmf(obs_vec, N, alpha) # this is where it breaks but is it because the code is broken or because of lack of diversity? It is not because of the lack of diversity
     #log_prob = scipy.stats.multinomial.logpmf(obs_vec, N, alpha) # this is pmf in John's code but we think it might need to be pmf?
     # log_prob = scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) # gives -10.21301 (correct)
-    log_prob = my_dirichlet_multinomial_logpmf(obs_vec, alpha) # our custom, jnp based dirichlet_multinomial.logpmf but something is wrong in the implementation this function gives us an integer, we want a vector of length 61
+    log_prob = my_dirichlet_multinomial_logpmf(obs_vec, A2) # our custom, jnp based dirichlet_multinomial.logpmf but something is wrong in the implementation this function gives us an integer, we want a vector of length 61
 
     #print("Difference between scipy and custom jax dirichlet-multinomial logpmf:", scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) - my_dirichlet_multinomial_logpmf(obs_vec, alpha))
     #print("Difference between scipy and other custom jax dirichlet-multinomial logpmf:", scipy.stats.dirichlet_multinomial.logpmf(obs_vec, alpha, N) - my_dirichlet_multinomial_logpmf_2(obs_vec, alpha))
@@ -111,23 +117,19 @@ def transforms(X, pi_eq):
 
     return log_pi, pimat, pimatinv, pimult
 
-def positive(a):
+def positive(a): # transformation for ensuring positive parameter values in model
         eps = 1e-6
         return jax.nn.softplus(a) + eps
 
-def softplus_inverse(y, eps=1e-6):
+def softplus_inverse(y, eps=1e-6): # inverse transformation for calculating raw parameter values (e.g. for start values of parameters)
     z = y - eps
     return jnp.log(jnp.expm1(z))
     
 def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
-
     batched_loss = jax.vmap(
         model,
         in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, 1)  # map over matrices + data
     )
-
-    #def fn(x): return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
-
     def f(raw_x): 
         
         #x = jnp.exp(x)
@@ -167,11 +169,14 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X[47,:] = 19
     #col = 0
     #X = np.array(X[:,11:16]) # found some diversity in these columns
-    X = np.array(X[:,11:18]) # found some diversity in these columns, and last column has no diversity
+    #X = np.array(X[:,11:18]) # found some diversity in these columns, and last column has no diversity
+    #X = np.array(X[:,7:18]) # found some diversity in these columns, and last column has no diversity # position 9 is problematic has 5x one codon, 18x another, which corresponds to nonsyn mutation I think (so dS = 0)
+    X = np.array(X[:,9:10])
+    # probably need exceptions for these cases?
     #print("X shape",X.shape)
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
-    #print("X",X)
+    print("X",X)
 
     # calculate mask for masking parts of the alignment where there is no diversity
     # this will allow using these position for calculating gradient for constant parameters but excludes omega calculation for these positions
@@ -233,16 +238,21 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(300): # define number of iterations of optimizer
+    for _ in range(10): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
         print('Objective function: ',(loss(params)))
+        print('updates: ',(updates))
         print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]])))
+        #print('raw parameters: ', jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]]))
         print('omegas: ', jax.tree.map(positive, params["omega"]))
+        #print('raw omegas: ', params["omega"])
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     #print('Final parameters: ',((params)))
+    #print('final parameters: ', jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]]))
+    #print('final omega: ', params["omega"])
     #print('Final omega: ',params["omega"][:10]) # only print first ten elements of omega parameters
     print('Objective function: ',(loss(params)))
 

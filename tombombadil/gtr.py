@@ -1636,7 +1636,6 @@ def build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult):
   ])
 
   M = M.at[rows, cols].set(values) # set all row, column entries to values from value vector
-
   M = jnp.matmul(jnp.matmul(M, pimat).T, pimat).T
     # seems to work. Stan apparently does matrix multiplication when using the * operator on two matrices
   M = diag_update(M, pimult)
