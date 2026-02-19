@@ -171,12 +171,39 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X = np.array(X[:,11:16]) # found some diversity in these columns
     #X = np.array(X[:,11:18]) # found some diversity in these columns, and last column has no diversity
     #X = np.array(X[:,7:18]) # found some diversity in these columns, and last column has no diversity # position 9 is problematic has 5x one codon, 18x another, which corresponds to nonsyn mutation I think (so dS = 0)
-    X = np.array(X[:,9:10])
+    #X = np.array(X[:,9:10])
+    #X = np.array(X[:,7:8])
     # probably need exceptions for these cases?
     #print("X shape",X.shape)
+    # I think there's a problem with the function reading in the data (the order of the codons)
+    """ X = np.zeros((61,5))
+    X[9,0] = 5
+    X[22,0] = 18
+    X[24,1] = 5
+    X[37,1] = 17
+    X[55,1] = 1
+    X[38,2] = 1 # 39  55  60 
+    X[54,2] = 5
+    X[59,2] = 17
+    X[49,3] = 8 # 50  58  59 
+    X[57,3] = 13
+    X[58,3] = 2
+    X[23,4] = 5 # 24  25  40
+    X[24,4] = 17
+    X[39,4] = 1
+    X = np.array(X[:,1:4]) """
+    X = np.array(X[:,10:11]) # this one for example behaves like it has found stop codons, where actually there should be 17x of AAT
+    # it should be (based on stan code)
+    #X = np.zeros((61,1))
+    #X[24,0] = 5
+    #X[37,0] = 17
+    #X[55,0] = 1
+
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
     print("X",X)
+    #print("sum X", np.sum(X))
+    print("larger zero", np.where(X > 0))
 
     # calculate mask for masking parts of the alignment where there is no diversity
     # this will allow using these position for calculating gradient for constant parameters but excludes omega calculation for these positions
@@ -238,7 +265,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(10): # define number of iterations of optimizer
+    for _ in range(100): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
