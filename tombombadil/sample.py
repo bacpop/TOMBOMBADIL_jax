@@ -194,18 +194,18 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     X = np.array(X[:,1:4]) """
     #X = np.array(X[:,10:11]) # this one for example behaves like it has found stop codons, where actually there should be 17x of AAT
     # it should be (based on stan code)
-    X = np.zeros((61,1))
-    X[24,0] = 5
-    X[37,0] = 17
-    X[55,0] = 1
+    #X = np.zeros((61,1))
+    #X[24,0] = 5
+    #X[37,0] = 17
+    #X[55,0] = 1
     #X = np.zeros((61,1))
     #X[9,0] = 5
     #X[22,0] = 18
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
-    print("X",X)
+    #print("X",X)
     #print("sum X", np.sum(X))
-    print("larger zero", np.where(X > 0))
+    #print("larger zero", np.where(X > 0))
 
     # calculate mask for masking parts of the alignment where there is no diversity
     # this will allow using these position for calculating gradient for constant parameters but excludes omega calculation for these positions
@@ -267,7 +267,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(1000): # define number of iterations of optimizer
+    for _ in range(20): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters

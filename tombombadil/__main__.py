@@ -23,6 +23,19 @@ col_order = np.array([63, 61, 60, 62, 55, 53, 52, 54, 51, 49, 59, 57, 58, 31, 29
 #stop codons 48 50 56
 #Ns 64
 
+# I think what this means: reading in with the 0,1,2,3 encoding results in order A,C,G,T
+# but we want order T,C,A,G
+# AAA = 0, AAC = 1, AAG = 2, AAT, 3, 
+# ACA = 4, ACC = 5, ACG = 6, ACT = 7, 
+# AGA = 8, AGC = 9, AGG = 10, AGT = 11
+# ATA = 12, ATC = 13, ATG = 14, ATT = 15
+# C** = 16-31
+# G** = 32 - 47
+# TAA = STOP = 48, TAC = 49, TAG = STOP = 50, TAT = 51
+# TCA = 52, TCC = 53, TCG = 54, TCT = 55,
+# TGA = STOP = 56, TGC = 57, TGG = 58, TGT = 59
+# TTA = 60, TTC = 61, TTG = 62, TTT = 63
+
 def get_options():
     import argparse
     parser = argparse.ArgumentParser(description='TOMBOMBADIL (Tree-free Omega Mapping By Observing Mutations of Bases and Amino acids Distributed Inside Loci)',
@@ -89,20 +102,22 @@ def count_codons(file_name):
             codon_s = s.reshape(-1, 3).copy()
             #print('codon_s',codon_s)
             # Convert to usual binary encoding
-            codon_s[codon_s==97] = 0
-            codon_s[codon_s==99] = 1
-            codon_s[codon_s==103] = 2
-            codon_s[codon_s==116] = 3
+            codon_s[codon_s==97] = 0 # A
+            codon_s[codon_s==99] = 1 # C
+            codon_s[codon_s==103] = 2 # G
+            codon_s[codon_s==116] = 3 # T
             # Bit shift
             codon_s[:,1] = np.left_shift(codon_s[:, 1], 2)
-            codon_s[:,2] = np.left_shift(codon_s[:, 2], 4)
+            codon_s[:,0] = np.left_shift(codon_s[:, 0], 4) # changed bit shift to first position (because we're ordering AAA, AAC, AAG, AAT, ACA, ... (= first position has longest "duration"))
             codon_map = np.fmin(np.sum(codon_s, 1), 65)
+            #print('codon_map',codon_map)
             # slow? Alternative would be to make X have shape (samples, n_codons)
             # and copy codon map into each row, then run np.bincount along columns
             for idx, count in enumerate(codon_map):
                 X[count,idx] += 1
 
     # reorder and cut off stops, ambiguous
+    #print("X", X[:,10])
     X = X[col_order,:]
     X = X[0:61, :]
 
