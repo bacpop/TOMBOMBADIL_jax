@@ -42,12 +42,15 @@ class Testlike(unittest.TestCase):
 
             for i in range(20):
                 print("i", i * 0.001)
-                print(fn({"alpha": softplus_inverse(0.08288978), "beta": softplus_inverse(0.08277921), "gamma": softplus_inverse(0.07815452), 
-                                    "delta": softplus_inverse(0.08275475), "epsilon": softplus_inverse(0.06998631), "eta": softplus_inverse(3.1111848), 
-                                    "theta": softplus_inverse(2.203008), "omega": jnp.repeat(jnp.array(softplus_inverse(i * 0.001), dtype=jnp.float32), jnp.size(X, axis=1))}))
-                print(fn({"alpha": softplus_inverse(0.8288978), "beta": softplus_inverse(0.8277921), "gamma": softplus_inverse(0.7815452), 
-                                    "delta": softplus_inverse(0.8275475), "epsilon": softplus_inverse(0.6998631), "eta": softplus_inverse(3.1111848), 
-                                    "theta": softplus_inverse(2.203008), "omega": jnp.repeat(jnp.array(softplus_inverse(i * 0.001), dtype=jnp.float32), jnp.size(X, axis=1))}))
+                #print(fn({"alpha": softplus_inverse(0.08288978), "beta": softplus_inverse(0.08277921), "gamma": softplus_inverse(0.07815452), 
+                #                    "delta": softplus_inverse(0.08275475), "epsilon": softplus_inverse(0.06998631), "eta": softplus_inverse(3.1111848), 
+                #                    "theta": softplus_inverse(2.203008), "omega": jnp.repeat(jnp.array(softplus_inverse(i * 0.001), dtype=jnp.float32), jnp.size(X, axis=1))}))
+                #print(fn({"alpha": softplus_inverse(0.8288978), "beta": softplus_inverse(0.8277921), "gamma": softplus_inverse(0.7815452), 
+                #                    "delta": softplus_inverse(0.8275475), "epsilon": softplus_inverse(0.6998631), "eta": softplus_inverse(3.1111848), 
+                #                    "theta": softplus_inverse(2.203008), "omega": jnp.repeat(jnp.array(softplus_inverse(i * 0.001), dtype=jnp.float32), jnp.size(X, axis=1))}))
+                print(fn({"alpha": softplus_inverse(1), "beta": softplus_inverse(1), "gamma": softplus_inverse(1), 
+                                    "delta": softplus_inverse(1), "epsilon": softplus_inverse(1), "eta": softplus_inverse(1), 
+                                    "theta": softplus_inverse(0.5), "omega": jnp.repeat(jnp.array(softplus_inverse(i * 0.001), dtype=jnp.float32), jnp.size(X, axis=1))})) # param set which is like Ny98 and shows nans (replicated in Stan with omega=0.003)
 
 if __name__ == '__main__':
     unittest.main()

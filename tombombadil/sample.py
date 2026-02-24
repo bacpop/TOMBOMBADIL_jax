@@ -17,7 +17,7 @@ from .likelihood import gen_alpha
 @jit
 def my_dirichlet_multinomial_logpmf(x, a):
     x = jnp.asarray(x)
-    #a = jnp.asarray(a)
+    a = jnp.asarray(a)
 
     N = jnp.sum(x, axis=-1)
     a0 = jnp.sum(a, axis=-1)
@@ -119,11 +119,11 @@ def transforms(X, pi_eq):
 
 def positive(a): # transformation for ensuring positive parameter values in model
         eps = 1e-6
-        return jax.nn.softplus(a) + eps
+        return jnp.exp(a)
 
 def softplus_inverse(y, eps=1e-6): # inverse transformation for calculating raw parameter values (e.g. for start values of parameters)
-    z = y - eps
-    return jnp.log(jnp.expm1(z))
+    z = y
+    return jnp.log((z))
     
 def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
     batched_loss = jax.vmap(
@@ -192,13 +192,15 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     X[24,4] = 17
     X[39,4] = 1
     X = np.array(X[:,1:4]) """
-    X = np.array(X[:,10:11]) # this one for example behaves like it has found stop codons, where actually there should be 17x of AAT
+    #X = np.array(X[:,10:11]) # this one for example behaves like it has found stop codons, where actually there should be 17x of AAT
     # it should be (based on stan code)
     #X = np.zeros((61,1))
     #X[24,0] = 5
     #X[37,0] = 17
     #X[55,0] = 1
-
+    X = np.zeros((61,1))
+    X[9,0] = 5
+    X[22,0] = 18
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
     print("X",X)
