@@ -120,12 +120,12 @@ def transforms(X, pi_eq):
 
 def positive(a): # transformation for ensuring positive parameter values in model
         eps = 1e-6
-        #return jnp.exp(a) + eps
-        return jnp.exp(a)
+        return jnp.exp(a) + eps
+        #return jnp.exp(a)
 
 def softplus_inverse(y, eps=1e-6): # inverse transformation for calculating raw parameter values (e.g. for start values of parameters)
-    #z = y - eps
-    z = y
+    z = y - eps
+    #z = y
     return jnp.log((z))
     
 def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
@@ -141,11 +141,18 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask): # closure for defi
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         x = jax.tree.map(positive, raw_x)
 
-        x["omega"] = jnp.where(
+        x["omega"] = jnp.where( # stops gradient for sites without diversity
             mask == 1,
             x["omega"],
             jax.lax.stop_gradient(x["omega"])
         )
+
+        x["omega"] = jnp.where( # stops gradients for omegas <= 0.01
+            x["omega"] > 0.01,
+            x["omega"],
+            jax.lax.stop_gradient(x["omega"])
+        )
+
 
         losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
         #print('losses: ',losses)
@@ -205,10 +212,10 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X[9,0] = 5
     #X[22,0] = 18
     #X = np.array(X[:,10:14])
-    X = np.array(X[:,12:15])
+    X = np.array(X[:,0:15])
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
-    print("X",X)
+    #print("X",X)
     #print("sum X", np.sum(X))
     #print("larger zero", np.where(X > 0))
 
