@@ -201,9 +201,10 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X = np.zeros((61,1))
     #X[9,0] = 5
     #X[22,0] = 18
+    #X = np.array(X[:,10:14])
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
-    #print("X",X)
+    print("X",X)
     #print("sum X", np.sum(X))
     #print("larger zero", np.where(X > 0))
 
@@ -267,7 +268,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(20): # define number of iterations of optimizer
+    for _ in range(100): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters

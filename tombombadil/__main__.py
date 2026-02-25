@@ -96,9 +96,11 @@ def count_codons(file_name):
             if X is None:
                 X = np.zeros((65, s.shape[0] // 3), dtype=np.int32)
             # Set ambiguous bases
-            ambig = s[(s!=97) & (s!=99) & (s!=103) & (s!=116)]
+            ambig = np.argwhere((s!=97) & (s!=99) & (s!=103) & (s!=116))
+            #print("ambig",ambig)
+            s = np.copy(s) # without copying I got ValueError: assignment destination is read-only
             if ambig.any():
-                s[ambig] = 65
+                s[ambig] = 64
             codon_s = s.reshape(-1, 3).copy()
             #print('codon_s',codon_s)
             # Convert to usual binary encoding
@@ -107,9 +109,11 @@ def count_codons(file_name):
             codon_s[codon_s==103] = 2 # G
             codon_s[codon_s==116] = 3 # T
             # Bit shift
+            #print('codon_s',codon_s)
             codon_s[:,1] = np.left_shift(codon_s[:, 1], 2)
             codon_s[:,0] = np.left_shift(codon_s[:, 0], 4) # changed bit shift to first position (because we're ordering AAA, AAC, AAG, AAT, ACA, ... (= first position has longest "duration"))
-            codon_map = np.fmin(np.sum(codon_s, 1), 65)
+            codon_map = np.fmin(np.sum(codon_s, 1), 64)
+            #print('codon_s',codon_s)
             #print('codon_map',codon_map)
             # slow? Alternative would be to make X have shape (samples, n_codons)
             # and copy codon map into each row, then run np.bincount along columns
