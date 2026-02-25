@@ -10,14 +10,15 @@ import jax.scipy.special as special
 from jax.scipy.special import gammaln
 import optax
 from jax import jit
+jax.config.update('jax_enable_x64', True)
 
 from .gtr import build_GTR
 from .likelihood import gen_alpha
 
 @jit
 def my_dirichlet_multinomial_logpmf(x, a):
-    x = jnp.asarray(x)
-    a = jnp.asarray(a)
+    x = jnp.asarray(x, dtype=jnp.float64)
+    a = jnp.asarray(a, dtype=jnp.float64)
 
     N = jnp.sum(x, axis=-1)
     a0 = jnp.sum(a, axis=-1)
@@ -119,9 +120,11 @@ def transforms(X, pi_eq):
 
 def positive(a): # transformation for ensuring positive parameter values in model
         eps = 1e-6
+        #return jnp.exp(a) + eps
         return jnp.exp(a)
 
 def softplus_inverse(y, eps=1e-6): # inverse transformation for calculating raw parameter values (e.g. for start values of parameters)
+    #z = y - eps
     z = y
     return jnp.log((z))
     
@@ -202,6 +205,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X[9,0] = 5
     #X[22,0] = 18
     #X = np.array(X[:,10:14])
+    X = np.array(X[:,12:15])
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
     print("X",X)
@@ -217,7 +221,11 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #print("col_sum",col_sum)
     #print("mask",mask)
     #mask = mask.at[0].set(0.0)
-
+    #mask2 = mask ==1
+    #print("mask where",mask2)
+    #X = X[:,mask2] # this could be an alternative, where I filter X by positions that show diversity
+    #print("X",X)
+    #log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     logging.info("Compiling model...") # jax first compiles code
 
     fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
@@ -268,7 +276,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(100): # define number of iterations of optimizer
+    for _ in range(1000): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
