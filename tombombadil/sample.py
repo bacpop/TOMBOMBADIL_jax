@@ -11,6 +11,7 @@ from jax.scipy.special import gammaln
 import optax
 from jax import jit
 jax.config.update('jax_enable_x64', True)
+import matplotlib.pyplot as plt
 
 from .gtr import build_GTR
 from .likelihood import gen_alpha
@@ -212,7 +213,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #X[9,0] = 5
     #X[22,0] = 18
     #X = np.array(X[:,10:14])
-    X = np.array(X[:,0:15])
+    #X = np.array(X[:,0:15])
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     # l is length of alignment
     #print("X",X)
@@ -245,14 +246,14 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #params = jnp.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
     #params = jnp.array([1, 1, 1, 1, 1, 1, 0.5, 0.5]) # define start parameters for optimization
     params = { # define parameters as dictionary to allow flexible (data-informed)size for omega
-        "alpha": jnp.array(softplus_inverse(1), dtype=jnp.float32),
-        "beta": jnp.array(softplus_inverse(1), dtype=jnp.float32),
-        "gamma": jnp.array(softplus_inverse(1), dtype=jnp.float32),
-        "delta": jnp.array(softplus_inverse(1), dtype=jnp.float32),
-        "epsilon": jnp.array(softplus_inverse(1), dtype=jnp.float32),
-        "eta": jnp.array(softplus_inverse(1), dtype=jnp.float32),
-        "theta": jnp.array(softplus_inverse(0.5), dtype=jnp.float32),
-        "omega": jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float32), jnp.size(X, axis=1)),
+        "alpha": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "beta": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "gamma": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "delta": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "epsilon": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "eta": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "theta": jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
+        "omega": jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float64), jnp.size(X, axis=1)),
     }
     #print('Parameters: ',((params)))
 
@@ -287,18 +288,21 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
-        print('Objective function: ',(loss(params)))
-        print('updates: ',(updates))
-        print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]])))
+        #print('Objective function: ',(loss(params)))
+        #print('updates: ',(updates))
+        #print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]])))
         #print('raw parameters: ', jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]]))
-        print('omegas: ', jax.tree.map(positive, params["omega"]))
+        #print('omegas: ', jax.tree.map(positive, params["omega"]))
         #print('raw omegas: ', params["omega"])
 
     print('Final likelihood: ', fn(params)) # print final likelihood
     #print('Final parameters: ',((params)))
-    #print('final parameters: ', jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]]))
-    #print('final omega: ', params["omega"])
+    print('final parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]])))
+    print('final omega: ', jax.tree.map(positive, params["omega"]))
     #print('Final omega: ',params["omega"][:10]) # only print first ten elements of omega parameters
     print('Objective function: ',(loss(params)))
+
+    plt.plot(jax.tree.map(positive, params["omega"]), 'o', color='black')
+    plt.show()
 
 
