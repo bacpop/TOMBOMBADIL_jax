@@ -259,7 +259,8 @@ def plot_regression(params, is_extracellular, is_imputed, regression_mask):
     for h, l in zip(handles, labels):
         if l not in seen:
             seen[l] = h
-    ax.legend(seen.values(), seen.keys(), loc='upper right', fontsize=8)
+    ax.legend(seen.values(), seen.keys(), loc='upper left', bbox_to_anchor=(1.01, 1),
+              borderaxespad=0, fontsize=8)
     plt.tight_layout()
     return fig, ax
 
@@ -326,7 +327,8 @@ def plot_domain_comparison(omega_baseline, omega_domain, is_extracellular, is_im
         Line2D([0], [0], color='black', marker='o', linestyle='None',
                markersize=6, label='Domain-informed'),
     ]
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=8)
+    ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.01, 1),
+              borderaxespad=0, fontsize=8)
     plt.tight_layout()
     return fig, ax
 
