@@ -10,6 +10,7 @@ import jax.scipy.special as special
 from jax.scipy.special import gammaln
 import optax
 from jax import jit
+from jax.flatten_util import ravel_pytree
 jax.config.update('jax_enable_x64', True)
 import matplotlib.pyplot as plt
 
@@ -332,6 +333,196 @@ def plot_domain_comparison(omega_baseline, omega_domain, is_extracellular, is_im
     plt.tight_layout()
     return fig, ax
 
+_REGRESSION_KEYS = {"alpha_reg", "beta_reg", "log_sigma"}
+
+
+def compute_laplace_se(fn, params):
+    """Diagonal Laplace approximation: per-parameter standard errors at the MAP.
+
+    Flattens the parameter PyTree to a 1-D vector, computes the full Hessian of
+    -fn (the negative log-likelihood), and uses its diagonal to approximate the
+    marginal variance of each parameter:
+
+        Var(theta_i) ≈ 1 / H_ii,   H = -d²(log L)/dtheta²
+
+    Standard errors in unconstrained (raw) space and on the natural scale are
+    both returned.  For parameters transformed by positive(), the delta method
+    gives  se_natural = se_raw * exp(raw),  which equals se_raw * omega for omega
+    parameters.  Regression parameters (alpha_reg, beta_reg, log_sigma) are
+    already in interpretable unconstrained space; log_sigma is also converted to
+    the sigma scale via the same delta method.
+
+    Sites where stop_gradient was applied (no diversity / masked omega) have
+    H_ii = 0 and are reported as NaN.
+
+    Args:
+        fn:     the log-likelihood function (higher = better)
+        params: PyTree of optimised (raw/unconstrained) parameter values
+
+    Returns:
+        se_raw:     PyTree matching params, SEs in unconstrained space
+        se_natural: PyTree matching params, SEs on natural scale
+    """
+    flat_params, unflatten = ravel_pytree(params)
+
+    def neg_ll_flat(p):
+        return -fn(unflatten(p))
+
+    # Compute only the diagonal of the Hessian via forward-over-reverse AD.
+    # For each basis vector eᵢ, jvp(grad, params, eᵢ) returns H @ eᵢ;
+    # the i-th element of that product is H_ii. This uses O(n) memory
+    # rather than the O(n²) required by the full jax.hessian approach.
+    grad_fn = jax.grad(neg_ll_flat)
+    n = len(flat_params)
+    def hess_diag_i(i):
+        e_i = jnp.zeros(n).at[i].set(1.0)
+        _, hv = jax.jvp(grad_fn, (flat_params,), (e_i,))
+        return hv[i]
+    hess_diag = jax.vmap(hess_diag_i)(jnp.arange(n))
+
+    # 1 / H_ii gives the marginal variance under the diagonal approximation.
+    # H_ii <= 0 means the likelihood is flat there (masked site) → NaN.
+    var_raw = jnp.where(hess_diag > 0, 1.0 / hess_diag, jnp.nan)
+    se_raw = unflatten(jnp.sqrt(jnp.clip(var_raw, 0)))
+
+    # Delta method onto natural scale for positive()-transformed parameters.
+    # For regression params the raw SE is already interpretable; log_sigma also
+    # gets the exp() delta method so we report se_sigma = sigma * se_log_sigma.
+    flat_se_raw, _ = ravel_pytree(se_raw)
+    se_natural = {}
+    for k in params:
+        if k in _REGRESSION_KEYS:
+            se_natural[k] = se_raw[k]
+        else:
+            se_natural[k] = se_raw[k] * jnp.exp(params[k])
+
+    return se_raw, se_natural
+
+
+def _print_laplace_summary(params, se_natural):
+    """Print a human-readable summary of MAP estimates ± 1 SE (natural scale)."""
+    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    print("\n--- Laplace approximation (diagonal) ---")
+    print("GTR / shared parameters (natural scale):")
+    for k in gtr_keys:
+        if k in params:
+            est = float(positive(params[k]))
+            se  = float(se_natural[k])
+            print(f"  {k:8s}: {est:.4f} ± {se:.4f}")
+    if "alpha_reg" in params:
+        print("Regression parameters:")
+        print(f"  alpha_reg: {float(params['alpha_reg']):.4f} ± {float(se_natural['alpha_reg']):.4f}  (log-omega scale)")
+        print(f"  beta_reg:  {float(params['beta_reg']):.4f}  ± {float(se_natural['beta_reg']):.4f}  (log-omega scale)")
+        sigma = float(jnp.exp(params["log_sigma"]))
+        se_s  = float(se_natural["log_sigma"]) * sigma  # delta method on sigma
+        print(f"  sigma:     {sigma:.4f} ± {se_s:.4f}")
+    omega_se = np.array(se_natural["omega"])
+    valid = omega_se[~np.isnan(omega_se)]
+    n_nan = int(np.isnan(omega_se).sum())
+    print(f"Omega SEs (natural scale): mean={valid.mean():.4f}  min={valid.min():.4f}  "
+          f"max={valid.max():.4f}  ({n_nan} sites masked/NaN)")
+    print("----------------------------------------\n")
+
+
+def _perturb_params(params, scale=0.5):
+    """Add Normal(0, scale) noise to all parameters in raw (unconstrained) space."""
+    key = jax.random.PRNGKey(int(np.random.randint(0, 2**31)))
+    flat, unflatten = ravel_pytree(params)
+    noise = jax.random.normal(key, flat.shape) * scale
+    return unflatten(flat + noise)
+
+
+def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=500):
+    """Run the optimizer n_reps times and return all results plus the index of the best.
+
+    Replicate 0 uses the unperturbed starting point; subsequent replicates add
+    Normal(0, 0.5) noise in raw parameter space. All runs are silent (verbose=False).
+
+    Args:
+        fn:            log-likelihood function
+        start_params:  unperturbed starting parameter dict
+        param_labels:  optax multi_transform label dict
+        n_reps:        number of restarts
+        n_iter:        optimisation iterations per replicate
+
+    Returns:
+        all_params: list of param dicts, one per replicate
+        best_idx:   index of the replicate with the highest log-likelihood
+    """
+    all_params = []
+    all_lls = []
+    for rep in range(n_reps):
+        start = dict(start_params) if rep == 0 else _perturb_params(start_params)
+        solver = optax.multi_transform(
+            {"vec": optax.adam(1e-1), "scalar": optax.adam(1e-1)}, param_labels=param_labels
+        )
+        params_rep = _optimize_params(fn, start, solver, n_iter, verbose=False)
+        ll = float(fn(params_rep))
+        all_params.append(params_rep)
+        all_lls.append(ll)
+        logging.info(f"  Replicate {rep + 1}/{n_reps}: log-likelihood = {ll:.4f}")
+    best_idx = int(np.argmax(all_lls))
+    logging.info(f"Best replicate: {best_idx + 1} (log-likelihood = {all_lls[best_idx]:.4f})")
+    return all_params, best_idx
+
+
+def plot_replicates(all_params_list, best_idx):
+    """Plot per-site omega and GTR parameter estimates across replicate runs.
+
+    Two panels:
+      - Top: omega scatter per site, one colour per replicate; best replicate
+             is opaque and larger, others are semi-transparent.
+      - Bottom: GTR scalar parameter estimates as a strip plot across replicates.
+
+    Tight clustering indicates robust convergence; spread indicates multiple
+    local optima or insufficient iterations.
+    """
+    n_reps = len(all_params_list)
+    all_omegas = [np.array(positive(p["omega"])) for p in all_params_list]
+    n_sites = len(all_omegas[0])
+    sites = np.arange(n_sites)
+    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    cmap = plt.cm.tab10
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8))
+
+    # Top: omega per site
+    ax = axes[0]
+    for i, omega in enumerate(all_omegas):
+        is_best = (i == best_idx)
+        ax.scatter(sites, omega, color=cmap(i % 10),
+                   alpha=0.9 if is_best else 0.25,
+                   s=15 if is_best else 8,
+                   zorder=4 if is_best else 2,
+                   label=f'Rep {i + 1} (best)' if is_best else f'Rep {i + 1}')
+    ax.axhline(1.0, color='black', linestyle='-', linewidth=2.5, alpha=0.85,
+               label='ω = 1 (neutral)', zorder=5)
+    ax.set_yscale('log')
+    ax.set_xlabel('Alignment site index')
+    ax.set_ylabel('ω (log scale)')
+    ax.set_title(f'Per-site ω across {n_reps} replicates — best replicate highlighted')
+    ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0, fontsize=8)
+
+    # Bottom: GTR scalar params
+    ax2 = axes[1]
+    x_pos = np.arange(len(gtr_keys))
+    for i, params in enumerate(all_params_list):
+        is_best = (i == best_idx)
+        vals = [float(positive(params[k])) for k in gtr_keys if k in params]
+        ax2.scatter(x_pos[:len(vals)], vals, color=cmap(i % 10),
+                    alpha=0.9 if is_best else 0.35,
+                    s=60 if is_best else 25,
+                    zorder=4 if is_best else 2)
+    ax2.set_xticks(x_pos)
+    ax2.set_xticklabels(gtr_keys)
+    ax2.axhline(1.0, color='black', linestyle='--', linewidth=1.0, alpha=0.5)
+    ax2.set_ylabel('Estimate (natural scale)')
+    ax2.set_title('GTR parameter estimates across replicates')
+
+    plt.tight_layout()
+    return fig, axes
+
+
 def plot_omega_coloured(params, is_extracellular, is_imputed, regression_mask):
     """Plot per-site omega estimates coloured by domain type, without regression lines.
 
@@ -372,7 +563,8 @@ def plot_omega_coloured(params, is_extracellular, is_imputed, regression_mask):
 
 def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
                 is_extracellular=None, is_imputed=None, regression_mask=None,
-                regression_weight=0.1, only_colour_domains=False):
+                regression_weight=0.1, only_colour_domains=False,
+                estimate_uncertainty=False, fit_replicates=1):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -466,13 +658,17 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
 
     if only_colour_domains and is_extracellular is not None:
         # Run standard model (no regression), then show domain-coloured plot
-        logging.info("Running optimization (no regression, domain colours only)...")
+        logging.info(f"Running optimization (no regression, domain colours only) — {fit_replicates} replicate(s)...")
         fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
-        solver = optax.multi_transform(
-            {"vec": optax.adam(1e-1), "scalar": optax.adam(1e-1)}, param_labels=base_labels
-        )
-        params = _optimize_params(fn, dict(base_params), solver, 100, verbose=True)
+        all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates)
+        params = all_params[best_idx]
 
+        if fit_replicates > 1:
+            plot_replicates(all_params, best_idx)
+        if estimate_uncertainty:
+            logging.info("Computing Laplace uncertainty...")
+            _, se_nat = compute_laplace_se(fn, params)
+            _print_laplace_summary(params, se_nat)
         is_imputed_np = np.array(is_imputed, dtype=bool) if is_imputed is not None else np.zeros(len(positive(params["omega"])), dtype=bool)
         plot_omega_coloured(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool))
         plt.show()
@@ -483,21 +679,23 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         is_extracellular = jnp.array(is_extracellular, dtype=jnp.float64)
         regression_mask  = jnp.array(regression_mask,  dtype=jnp.float64)
 
-        # --- Baseline run (no domain regression, silent) ---
+        # --- Baseline run (single, silent — used only for the comparison plot) ---
         logging.info("Running baseline optimization (no domain regression)...")
         fn_baseline = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
-        solver_baseline = optax.multi_transform(
-            {"vec": optax.adam(1e-1), "scalar": optax.adam(1e-1)}, param_labels=base_labels
-        )
-        params_baseline = _optimize_params(fn_baseline, dict(base_params), solver_baseline, 100, verbose=False)
+        baseline_all, baseline_best = _run_replicates(fn_baseline, base_params, base_labels, 1)
+        params_baseline = baseline_all[baseline_best]
         omega_baseline = positive(params_baseline["omega"])
+        if estimate_uncertainty:
+            logging.info("Computing baseline Laplace uncertainty...")
+            _, se_nat_baseline = compute_laplace_se(fn_baseline, params_baseline)
+            _print_laplace_summary(params_baseline, se_nat_baseline)
 
-        # --- Domain-informed run (verbose) ---
-        logging.info("Running optimization with domain regression...")
+        # --- Domain-informed run ---
+        logging.info(f"Running optimization with domain regression — {fit_replicates} replicate(s)...")
         domain_params = dict(base_params)
         domain_params["alpha_reg"] = jnp.array(0.0,           dtype=jnp.float64)
         domain_params["beta_reg"]  = jnp.array(0.0,           dtype=jnp.float64)
-        domain_params["log_sigma"] = jnp.array(jnp.log(2.0),  dtype=jnp.float64)  # sigma starts at 2 (diffuse)
+        domain_params["log_sigma"] = jnp.array(jnp.log(2.0),  dtype=jnp.float64)
         domain_labels = dict(base_labels)
         domain_labels["alpha_reg"] = "scalar"
         domain_labels["beta_reg"]  = "scalar"
@@ -505,10 +703,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
 
         fn_domain = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
                             is_extracellular, regression_mask, regression_weight)
-        solver_domain = optax.multi_transform(
-            {"vec": optax.adam(1e-1), "scalar": optax.adam(1e-1)}, param_labels=domain_labels
-        )
-        params = _optimize_params(fn_domain, domain_params, solver_domain, 100, verbose=True)
+        all_domain_params, best_idx = _run_replicates(fn_domain, domain_params, domain_labels, fit_replicates)
+        params = all_domain_params[best_idx]
         omega_domain = positive(params["omega"])
 
         loss_fn = lambda p: -fn_domain(p)
@@ -522,6 +718,12 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         print('final beta_reg: ', params["beta_reg"])
         print('final sigma: ', jnp.exp(params["log_sigma"]))
         print('Objective function: ', loss_fn(params))
+        if fit_replicates > 1:
+            plot_replicates(all_domain_params, best_idx)
+        if estimate_uncertainty:
+            logging.info("Computing domain-run Laplace uncertainty...")
+            _, se_nat_domain = compute_laplace_se(fn_domain, params)
+            _print_laplace_summary(params, se_nat_domain)
 
         # Convert is_imputed for plotting (may still be numpy)
         is_imputed_np = np.array(is_imputed, dtype=bool) if is_imputed is not None else np.zeros(len(omega_domain), dtype=bool)
@@ -533,12 +735,11 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         plt.show()
 
     else:
-        # Single run without domain regression
+        # Run without domain regression
+        logging.info(f"Running optimization — {fit_replicates} replicate(s)...")
         fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
-        solver = optax.multi_transform(
-            {"vec": optax.adam(1e-1), "scalar": optax.adam(1e-1)}, param_labels=base_labels
-        )
-        params = _optimize_params(fn, base_params, solver, 100, verbose=True)
+        all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates)
+        params = all_params[best_idx]
 
         loss_fn = lambda p: -fn(p)
         print('Final likelihood: ', fn(params))
@@ -548,8 +749,14 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         ])))
         print('final omega: ', jax.tree.map(positive, params["omega"]))
         print('Objective function: ', loss_fn(params))
+        if fit_replicates > 1:
+            plot_replicates(all_params, best_idx)
+        if estimate_uncertainty:
+            logging.info("Computing Laplace uncertainty...")
+            _, se_nat = compute_laplace_se(fn, params)
+            _print_laplace_summary(params, se_nat)
 
-        plt.plot(jax.tree.map(positive, params["omega"]), 'o', color='black')
+        plt.plot(np.array(positive(params["omega"])), 'o', color='black')
         plt.show()
 
 
