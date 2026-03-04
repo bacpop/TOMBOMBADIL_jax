@@ -57,6 +57,9 @@ def get_options():
     mGroup.add_argument('--regression-weight', type=float, default=0.1,
                         help='Weight of the domain regression term relative to the data likelihood (default 0.1). '
                              'Decrease to reduce influence on strong selection signals.')
+    mGroup.add_argument('--only_colour_domains', action='store_true', default=False,
+                        help='Run the standard model (no regression) and produce a plot coloured by domain annotation. '
+                             'Requires --domains and --reference.')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
@@ -163,7 +166,8 @@ def main():
         )
 
     run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus,
-                is_extracellular, is_imputed, regression_mask, options.regression_weight)
+                is_extracellular, is_imputed, regression_mask, options.regression_weight,
+                only_colour_domains=options.only_colour_domains)
 
 if __name__ == "__main__":
     main()
