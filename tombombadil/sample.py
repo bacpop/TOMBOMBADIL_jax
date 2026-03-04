@@ -146,7 +146,7 @@ def regression_log_likelihood(raw_x, is_extracellular):
     return jnp.mean(jax.scipy.stats.norm.logpdf(log_omega, mu, sigma))
 
 
-def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
+def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None, regression_weight=0.1): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
     batched_loss = jax.vmap(
         model,
         in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, 1)  # map over matrices + data
@@ -176,11 +176,68 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=No
         #print('losses: ',losses)
         total = jnp.mean(losses)
         if is_extracellular is not None:
-            total = total + regression_log_likelihood(raw_x, is_extracellular)
+            # regression_weight controls how strongly the regression term influences omega
+            # relative to the data likelihood. Values < 1 prevent the regression from
+            # overriding strong selection signals (very high or very low omega).
+            total = total + regression_weight * regression_log_likelihood(raw_x, is_extracellular)
         return total
     return f
 
-def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8, is_extracellular=None):
+
+def plot_regression(params, is_extracellular):
+    """Plot per-site omega estimates coloured by domain type with regression predictions.
+
+    Shows omega on a log scale so that both very small (purifying selection) and
+    very large (positive selection) values are visible alongside the regression
+    prediction and ±1 sigma bands for each domain class.
+    """
+    omega = np.array(positive(params["omega"]))
+    alpha_reg = float(params["alpha_reg"])
+    beta_reg = float(params["beta_reg"])
+    sigma = float(jnp.exp(params["log_sigma"]))
+    is_ext = np.array(is_extracellular, dtype=bool)
+
+    sites = np.arange(len(omega))
+
+    fig, ax = plt.subplots(figsize=(14, 4))
+
+    # Per-site omega, coloured by domain annotation
+    ax.scatter(sites[~is_ext], omega[~is_ext], color='steelblue', alpha=0.5, s=15, label='Other', zorder=3)
+    ax.scatter(sites[is_ext],  omega[is_ext],  color='tomato',    alpha=0.7, s=15, label='Extracellular', zorder=3)
+
+    # Regression prediction (in omega space: exp of log-space prediction)
+    pred_other = np.exp(alpha_reg)
+    pred_ext   = np.exp(alpha_reg + beta_reg)
+
+    for pred, colour, label in [
+        (pred_other, 'steelblue', f'E[ω | other] = {pred_other:.3f}'),
+        (pred_ext,   'tomato',    f'E[ω | extracellular] = {pred_ext:.3f}'),
+    ]:
+        ax.axhline(pred,                   color=colour, linestyle='--', linewidth=1.5, label=label)
+        ax.axhline(np.exp(np.log(pred) + sigma), color=colour, linestyle=':',  linewidth=0.8, alpha=0.5)
+        ax.axhline(np.exp(np.log(pred) - sigma), color=colour, linestyle=':',  linewidth=0.8, alpha=0.5,
+                   label=f'±1σ (σ={sigma:.2f})')
+
+    ax.axhline(1.0, color='black', linestyle='-', linewidth=0.5, alpha=0.3, label='ω = 1 (neutral)')
+    ax.set_yscale('log')
+    ax.set_xlabel('Alignment site index')
+    ax.set_ylabel('ω (dN/dS, log scale)')
+    ax.set_title(
+        f'Per-site ω with domain-informed regression\n'
+        f'α={alpha_reg:.3f}, β={beta_reg:.3f}, σ={sigma:.3f}'
+    )
+    # Deduplicate legend entries (±1σ appears twice)
+    handles, labels = ax.get_legend_handles_labels()
+    seen = {}
+    for h, l in zip(handles, labels):
+        if l not in seen:
+            seen[l] = h
+    ax.legend(seen.values(), seen.keys(), loc='upper right', fontsize=8)
+
+    plt.tight_layout()
+    return fig, ax
+
+def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8, is_extracellular=None, regression_weight=0.1):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -259,7 +316,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8, is
     if is_extracellular is not None:
         is_extracellular = jnp.array(is_extracellular, dtype=jnp.float64)
 
-    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular)
+    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular, regression_weight)
 
     # TODO: set threads/device/optim options
     # TODO: work for multiple codons
@@ -291,7 +348,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8, is
     if is_extracellular is not None:
         params["alpha_reg"] = jnp.array(0.0, dtype=jnp.float64)
         params["beta_reg"] = jnp.array(0.0, dtype=jnp.float64)
-        params["log_sigma"] = jnp.array(0.0, dtype=jnp.float64)
+        params["log_sigma"] = jnp.array(jnp.log(2.0), dtype=jnp.float64)  # start with sigma=2 (diffuse)
         param_labels["alpha_reg"] = "scalar"
         param_labels["beta_reg"] = "scalar"
         param_labels["log_sigma"] = "scalar"
@@ -306,15 +363,15 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8, is
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(1000): # define number of iterations of optimizer
+    for _ in range(100): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
         #print('Objective function: ',(loss(params)))
         #print('updates: ',(updates))
-        #print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]])))
+        print('parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]])))
         #print('raw parameters: ', jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]]))
-        #print('omegas: ', jax.tree.map(positive, params["omega"]))
+        print('omegas: ', jax.tree.map(positive, params["omega"]))
         #print('raw omegas: ', params["omega"])
 
     print('Final likelihood: ', fn(params)) # print final likelihood
@@ -326,7 +383,10 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8, is
         print('final sigma: ', jnp.exp(params["log_sigma"]))
     print('Objective function: ',(loss(params)))
 
-    plt.plot(jax.tree.map(positive, params["omega"]), 'o', color='black')
+    if is_extracellular is not None:
+        plot_regression(params, is_extracellular)
+    else:
+        plt.plot(jax.tree.map(positive, params["omega"]), 'o', color='black')
     plt.show()
 
 

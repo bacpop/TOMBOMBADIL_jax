@@ -54,6 +54,9 @@ def get_options():
                         help='UniProt JSON file with domain annotations for hierarchical regression on omega')
     mGroup.add_argument('--reference', type=str, default=None,
                         help='Reference protein FASTA for mapping domain positions to alignment columns (required with --domains)')
+    mGroup.add_argument('--regression-weight', type=float, default=0.1,
+                        help='Weight of the domain regression term relative to the data likelihood (default 0.1). '
+                             'Decrease to reduce influence on strong selection signals.')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
@@ -159,7 +162,7 @@ def main():
         n_extracellular = int(is_extracellular.sum())
         logging.info(f"Found {n_extracellular}/{X.shape[1]} sites annotated as extracellular")
 
-    run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus, is_extracellular)
+    run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus, is_extracellular, options.regression_weight)
 
 if __name__ == "__main__":
     main()
