@@ -79,7 +79,6 @@ def build_alignment_to_protein_map(alignment_path, reference_protein_path):
             break
 
     if proxy_seq is None:
-        counts = [_non_gap_codon_count(s) for _, s in sequences]
         best_header, best_seq = min(sequences, key=lambda x: abs(_non_gap_codon_count(x[1]) - ref_len))
         best_count = _non_gap_codon_count(best_seq)
         warnings.warn(
@@ -101,12 +100,72 @@ def build_alignment_to_protein_map(alignment_path, reference_protein_path):
     return col_to_protein_pos
 
 
-def parse_domain_json(json_path, alignment_path, reference_protein_path, n_sites):
-    """Parse a UniProt JSON file and return a binary array indicating extracellular sites.
+def _impute_unknown_sites(is_extracellular, annotated_mask):
+    """Impute unannotated alignment sites using nearest annotated neighbours.
 
-    Uses a reference protein sequence and the codon alignment to correctly map UniProt
-    protein positions (1-based) to alignment column indices, accounting for insertions
-    relative to the reference.
+    For each unannotated site, finds the nearest annotated site on the left and on
+    the right (skipping over other unannotated sites):
+      - Both neighbours extracellular     → impute as extracellular, include in regression
+      - Both neighbours non-extracellular → impute as non-extracellular, include in regression
+      - Neighbours disagree               → mark as NA, exclude from regression
+      - No annotated neighbour on one side (edge) → mark as NA, exclude from regression
+
+    Args:
+        is_extracellular: float64 array, 1.0/0.0 for annotated sites (ignored for unknowns)
+        annotated_mask: bool array, True where the site has a known domain annotation
+
+    Returns:
+        is_extracellular: updated float64 array (imputed values filled in; NA sites set to 0)
+        is_imputed: bool array, True for sites that were imputed by this function
+        regression_mask: float64 array, 1.0 where the site should be included in the regression
+    """
+    n = len(is_extracellular)
+    result = is_extracellular.copy()
+    is_imputed = np.zeros(n, dtype=bool)
+    regression_mask = annotated_mask.astype(np.float64)
+
+    for i in range(n):
+        if annotated_mask[i]:
+            continue  # already known
+
+        # Nearest annotated neighbour on the left
+        left_val = None
+        for j in range(i - 1, -1, -1):
+            if annotated_mask[j]:
+                left_val = is_extracellular[j]
+                break
+
+        # Nearest annotated neighbour on the right
+        right_val = None
+        for j in range(i + 1, n):
+            if annotated_mask[j]:
+                right_val = is_extracellular[j]
+                break
+
+        if left_val is None or right_val is None:
+            # Edge: cannot determine both neighbours → NA
+            result[i] = 0.0
+            regression_mask[i] = 0.0
+        elif left_val == right_val:
+            # Neighbours agree → impute
+            result[i] = left_val
+            is_imputed[i] = True
+            regression_mask[i] = 1.0
+        else:
+            # Neighbours disagree → NA
+            result[i] = 0.0
+            regression_mask[i] = 0.0
+
+    return result, is_imputed, regression_mask
+
+
+def parse_domain_json(json_path, alignment_path, reference_protein_path, n_sites):
+    """Parse a UniProt JSON file and return domain annotation arrays for all alignment sites.
+
+    Sites with a known domain annotation are labelled directly. Unannotated sites
+    (insertions relative to the reference, or protein positions not covered by any
+    feature) are imputed from their nearest annotated neighbours where possible, or
+    marked as NA and excluded from the regression.
 
     Args:
         json_path: path to UniProt JSON file
@@ -115,7 +174,9 @@ def parse_domain_json(json_path, alignment_path, reference_protein_path, n_sites
         n_sites: number of alignment sites (codon positions), used for validation
 
     Returns:
-        is_extracellular: float64 numpy array of shape (n_sites,), 1=extracellular, 0=other
+        is_extracellular: float64 array of shape (n_sites,), 1=extracellular, 0=other/NA
+        is_imputed: bool array of shape (n_sites,), True where the label was inferred
+        regression_mask: float64 array of shape (n_sites,), 1=include in regression, 0=exclude (NA)
     """
     col_to_protein_pos = build_alignment_to_protein_map(alignment_path, reference_protein_path)
 
@@ -127,13 +188,10 @@ def parse_domain_json(json_path, alignment_path, reference_protein_path, n_sites
     with open(json_path) as f:
         data = json.load(f)
 
-    # Collect all extracellular protein positions (1-based)
     extracellular_positions = set()
-    for feature in data.get("features", []):
-        desc = feature.get("description", "")
-        if desc.lower() != "extracellular":
-            continue
+    all_annotated_positions = set()
 
+    for feature in data.get("features", []):
         loc = feature.get("location", {})
         start = loc.get("start", {})
         end = loc.get("end", {})
@@ -141,16 +199,39 @@ def parse_domain_json(json_path, alignment_path, reference_protein_path, n_sites
         if start.get("modifier") != "EXACT" or end.get("modifier") != "EXACT":
             warnings.warn(
                 f"Skipping non-EXACT feature at positions "
-                f"{start.get('value')}-{end.get('value')}: {desc!r}"
+                f"{start.get('value')}-{end.get('value')}: {feature.get('description')!r}"
             )
             continue
 
-        extracellular_positions.update(range(start["value"], end["value"] + 1))
+        positions = set(range(start["value"], end["value"] + 1))
+        all_annotated_positions.update(positions)
 
-    # Map protein positions to alignment columns
+        if feature.get("description", "").lower() == "extracellular":
+            extracellular_positions.update(positions)
+
+    # Build initial annotation arrays: only sites with a known domain are annotated
     is_extracellular = np.zeros(n_sites, dtype=np.float64)
-    for i in range(n_sites):
-        if col_to_protein_pos[i] in extracellular_positions:
-            is_extracellular[i] = 1.0
+    annotated_mask = np.zeros(n_sites, dtype=bool)
 
-    return is_extracellular
+    for i in range(n_sites):
+        p = col_to_protein_pos[i]
+        if p != -1 and p in all_annotated_positions:
+            annotated_mask[i] = True
+            if p in extracellular_positions:
+                is_extracellular[i] = 1.0
+
+    # Impute unknown sites from neighbours
+    is_extracellular, is_imputed, regression_mask = _impute_unknown_sites(
+        is_extracellular, annotated_mask
+    )
+
+    n_annotated = int(annotated_mask.sum())
+    n_imputed = int(is_imputed.sum())
+    n_na = int((regression_mask == 0).sum())
+    n_extracellular = int(is_extracellular.sum())
+    print(
+        f"Domain annotation: {n_annotated} annotated, {n_imputed} imputed, "
+        f"{n_na} excluded (NA) | {n_extracellular} extracellular total"
+    )
+
+    return is_extracellular, is_imputed, regression_mask
