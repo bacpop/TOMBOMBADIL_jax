@@ -332,9 +332,47 @@ def plot_domain_comparison(omega_baseline, omega_domain, is_extracellular, is_im
     plt.tight_layout()
     return fig, ax
 
+def plot_omega_coloured(params, is_extracellular, is_imputed, regression_mask):
+    """Plot per-site omega estimates coloured by domain type, without regression lines.
+
+    Intended for use with --only-colour-domains: shows domain-coloured omega from a
+    standard (no regression) run.
+    """
+    omega = np.array(positive(params["omega"]))
+
+    is_ext  = np.array(is_extracellular, dtype=bool)
+    is_imp  = np.array(is_imputed,       dtype=bool)
+    reg_m   = np.array(regression_mask,  dtype=bool)
+
+    known_ext   = is_ext  & ~is_imp
+    known_other = ~is_ext & ~is_imp & reg_m
+    imputed     = is_imp
+    na_sites    = ~reg_m
+
+    sites = np.arange(len(omega))
+    fig, ax = plt.subplots(figsize=(14, 4))
+
+    ax.scatter(sites[known_other], omega[known_other], color='steelblue', alpha=0.5, s=15, label='Other (annotated)',         zorder=3)
+    ax.scatter(sites[known_ext],   omega[known_ext],   color='tomato',    alpha=0.7, s=15, label='Extracellular (annotated)', zorder=3)
+    ax.scatter(sites[imputed],     omega[imputed],     color='grey',      alpha=0.5, s=15, label='Imputed',                  zorder=3)
+    if na_sites.any():
+        ax.scatter(sites[na_sites], omega[na_sites],   color='lightgrey', alpha=0.4, s=10, label='Unknown (excluded)',       zorder=2)
+
+    ax.axhline(1.0, color='black', linestyle='-', linewidth=2.5, alpha=0.85,
+               label='ω = 1 (neutral)', zorder=5)
+
+    ax.set_yscale('log')
+    ax.set_xlabel('Alignment site index')
+    ax.set_ylabel('ω (dN/dS, log scale)')
+    ax.set_title('Per-site ω coloured by domain annotation (no regression)')
+    ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0, fontsize=8)
+    plt.tight_layout()
+    return fig, ax
+
+
 def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
                 is_extracellular=None, is_imputed=None, regression_mask=None,
-                regression_weight=0.1):
+                regression_weight=0.1, only_colour_domains=False):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -425,6 +463,20 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         "omega": "vec", "alpha": "scalar", "beta": "scalar", "gamma": "scalar",
         "delta": "scalar", "epsilon": "scalar", "eta": "scalar", "theta": "scalar",
     }
+
+    if only_colour_domains and is_extracellular is not None:
+        # Run standard model (no regression), then show domain-coloured plot
+        logging.info("Running optimization (no regression, domain colours only)...")
+        fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
+        solver = optax.multi_transform(
+            {"vec": optax.adam(1e-1), "scalar": optax.adam(1e-1)}, param_labels=base_labels
+        )
+        params = _optimize_params(fn, dict(base_params), solver, 100, verbose=True)
+
+        is_imputed_np = np.array(is_imputed, dtype=bool) if is_imputed is not None else np.zeros(len(positive(params["omega"])), dtype=bool)
+        plot_omega_coloured(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool))
+        plt.show()
+        return
 
     if is_extracellular is not None:
         # Convert to JAX arrays
