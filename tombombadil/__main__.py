@@ -7,6 +7,7 @@ import jax.numpy as jnp
 
 from .__init__ import __version__
 from .sample import run_sampler
+from .domains import parse_domain_json
 
 # expected order
 # "TTT","TTC","TTA","TTG","TCT","TCC","TCA","TCG","TAT","TAC","TGT","TGC"
@@ -49,6 +50,10 @@ def get_options():
     mGroup = parser.add_argument_group('Model options')
     mGroup.add_argument('--pi', type=str, default=None,
                         help='Pi equilibrium vector (default all equal)')
+    mGroup.add_argument('--domains', type=str, default=None,
+                        help='UniProt JSON file with domain annotations for hierarchical regression on omega')
+    mGroup.add_argument('--reference', type=str, default=None,
+                        help='Reference protein FASTA for mapping domain positions to alignment columns (required with --domains)')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
@@ -143,7 +148,18 @@ def main():
     if options.pi is None:
         pi = np.array([1/61 for i in range(61)])
 
-    run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus)
+    is_extracellular = None
+    if options.domains is not None:
+        if options.reference is None:
+            raise ValueError("--reference is required when --domains is specified")
+        logging.info("Parsing domain annotations...")
+        is_extracellular = parse_domain_json(
+            options.domains, options.alignment, options.reference, X.shape[1]
+        )
+        n_extracellular = int(is_extracellular.sum())
+        logging.info(f"Found {n_extracellular}/{X.shape[1]} sites annotated as extracellular")
+
+    run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus, is_extracellular)
 
 if __name__ == "__main__":
     main()
