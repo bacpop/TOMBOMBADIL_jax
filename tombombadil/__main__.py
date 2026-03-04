@@ -152,17 +152,18 @@ def main():
         pi = np.array([1/61 for i in range(61)])
 
     is_extracellular = None
+    is_imputed = None
+    regression_mask = None
     if options.domains is not None:
         if options.reference is None:
             raise ValueError("--reference is required when --domains is specified")
         logging.info("Parsing domain annotations...")
-        is_extracellular = parse_domain_json(
+        is_extracellular, is_imputed, regression_mask = parse_domain_json(
             options.domains, options.alignment, options.reference, X.shape[1]
         )
-        n_extracellular = int(is_extracellular.sum())
-        logging.info(f"Found {n_extracellular}/{X.shape[1]} sites annotated as extracellular")
 
-    run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus, is_extracellular, options.regression_weight)
+    run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus,
+                is_extracellular, is_imputed, regression_mask, options.regression_weight)
 
 if __name__ == "__main__":
     main()
