@@ -60,6 +60,13 @@ def get_options():
     mGroup.add_argument('--only_colour_domains', action='store_true', default=False,
                         help='Run the standard model (no regression) and produce a plot coloured by domain annotation. '
                              'Requires --domains and --reference.')
+    mGroup.add_argument('--estimate-uncertainty', action='store_true', default=False,
+                        help='Compute per-parameter standard errors via diagonal Laplace approximation '
+                             '(Hessian-based). Can be memory-intensive for large alignments.')
+    mGroup.add_argument('--fit-replicates', type=int, default=1, metavar='N',
+                        help='Run the optimiser N times with random perturbations of the starting values '
+                             'and produce a convergence plot. Best replicate (highest log-likelihood) is used '
+                             'for all downstream outputs (default: 1).')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
@@ -167,7 +174,9 @@ def main():
 
     run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus,
                 is_extracellular, is_imputed, regression_mask, options.regression_weight,
-                only_colour_domains=options.only_colour_domains)
+                only_colour_domains=options.only_colour_domains,
+                estimate_uncertainty=options.estimate_uncertainty,
+                fit_replicates=options.fit_replicates)
 
 if __name__ == "__main__":
     main()
