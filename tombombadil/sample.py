@@ -129,13 +129,30 @@ def softplus_inverse(y, eps=1e-6): # inverse transformation for calculating raw
     #z = y
     return jnp.log((z))
     
-def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
+def regression_log_likelihood(raw_x, is_extracellular):
+    """Hierarchical regression log-likelihood on log(omega).
+
+    Models log(omega_i) = alpha_reg + beta_reg * is_extracellular_i + epsilon_i,
+    where epsilon_i ~ Normal(0, sigma^2). alpha_reg and beta_reg are in unconstrained
+    space (can be any value). sigma = exp(log_sigma).
+
+    The omega values used are positive(raw_omega), consistent with the main model.
+    Returns mean per-site log-likelihood to match the scale of the main data term.
+    """
+    omega = positive(raw_x["omega"])
+    log_omega = jnp.log(omega)
+    mu = raw_x["alpha_reg"] + raw_x["beta_reg"] * is_extracellular
+    sigma = jnp.exp(raw_x["log_sigma"])
+    return jnp.mean(jax.scipy.stats.norm.logpdf(log_omega, mu, sigma))
+
+
+def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
     batched_loss = jax.vmap(
         model,
         in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, 1)  # map over matrices + data
     )
-    def f(raw_x): 
-        
+    def f(raw_x):
+
         #x = jnp.exp(x)
         #print('x: ',x)
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
@@ -157,10 +174,13 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask): # closure for defi
 
         losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
         #print('losses: ',losses)
-        return jnp.mean(losses)
+        total = jnp.mean(losses)
+        if is_extracellular is not None:
+            total = total + regression_log_likelihood(raw_x, is_extracellular)
+        return total
     return f
 
-def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
+def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8, is_extracellular=None):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -236,15 +256,16 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     logging.info("Compiling model...") # jax first compiles code
 
-    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
-    
+    if is_extracellular is not None:
+        is_extracellular = jnp.array(is_extracellular, dtype=jnp.float64)
+
+    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular)
+
     # TODO: set threads/device/optim options
     # TODO: work for multiple codons
 
     # For now: [alpha, beta, gamma, delta, epsilon, eta, theta, omega]
     # 6 parameters of GTR matrix, theta, omega
-    #params = jnp.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
-    #params = jnp.array([1, 1, 1, 1, 1, 1, 0.5, 0.5]) # define start parameters for optimization
     params = { # define parameters as dictionary to allow flexible (data-informed)size for omega
         "alpha": jnp.array(softplus_inverse(1), dtype=jnp.float64),
         "beta": jnp.array(softplus_inverse(1), dtype=jnp.float64),
@@ -255,19 +276,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         "theta": jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
         "omega": jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float64), jnp.size(X, axis=1)),
     }
-    #print('Parameters: ',((params)))
 
-    #params = jnp.array([0, 0, 0, 0, 0, 0, -0.6931472, -0.6931472]) # used this in comibnation of the x = jnp.exp(x) in fn(x) - transformation of parameters but might not be necessary?
-
-    #solver = optax.adabelief(learning_rate=0.003) # adabelief optimizer
-    #solver = optax.adam(learning_rate=0.0000001) # adam optimizer
-    #solver = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-2)) # define optimizer (adam, with clipping)
-    solver = optax.multi_transform(
-    {
-        "vec": optax.adam(1e-1),
-        "scalar": optax.adam(1e-1),
-    },
-    param_labels={
+    param_labels = {
         "omega": "vec",
         "alpha": "scalar",
         "beta": "scalar",
@@ -276,8 +286,20 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         "epsilon": "scalar",
         "eta": "scalar",
         "theta": "scalar",
-    },
-)
+    }
+
+    if is_extracellular is not None:
+        params["alpha_reg"] = jnp.array(0.0, dtype=jnp.float64)
+        params["beta_reg"] = jnp.array(0.0, dtype=jnp.float64)
+        params["log_sigma"] = jnp.array(0.0, dtype=jnp.float64)
+        param_labels["alpha_reg"] = "scalar"
+        param_labels["beta_reg"] = "scalar"
+        param_labels["log_sigma"] = "scalar"
+
+    solver = optax.multi_transform(
+        {"vec": optax.adam(1e-1), "scalar": optax.adam(1e-1)},
+        param_labels=param_labels,
+    )
 
     def loss(p): return -fn(p) # define loss function (will be minimized that is why it must be -fn(p))
     
@@ -296,10 +318,12 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
         #print('raw omegas: ', params["omega"])
 
     print('Final likelihood: ', fn(params)) # print final likelihood
-    #print('Final parameters: ',((params)))
     print('final parameters: ', jax.tree.map(positive, jnp.array([params["alpha"], params["beta"], params["gamma"], params["delta"], params["epsilon"], params["eta"], params["theta"]])))
     print('final omega: ', jax.tree.map(positive, params["omega"]))
-    #print('Final omega: ',params["omega"][:10]) # only print first ten elements of omega parameters
+    if is_extracellular is not None:
+        print('final alpha_reg: ', params["alpha_reg"])
+        print('final beta_reg: ', params["beta_reg"])
+        print('final sigma: ', jnp.exp(params["log_sigma"]))
     print('Objective function: ',(loss(params)))
 
     plt.plot(jax.tree.map(positive, params["omega"]), 'o', color='black')
