@@ -142,11 +142,11 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask): # closure for defi
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         x = jax.tree.map(positive, raw_x)
 
-        x["omega"] = jnp.where( # stops gradient for sites without diversity
-            mask == 1,
-            x["omega"],
-            jax.lax.stop_gradient(x["omega"])
-        )
+        #x["omega"] = jnp.where( # stops gradient for sites without diversity
+        #    mask == 1,
+        #    x["omega"],
+        #    jax.lax.stop_gradient(x["omega"])
+        #)
 
         x["omega"] = jnp.where( # stops gradients for omegas <= 0.01
             x["omega"] > 0.01,
@@ -229,10 +229,10 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     #print("col_sum",col_sum)
     #print("mask",mask)
     #mask = mask.at[0].set(0.0)
-    #mask2 = mask ==1
+    mask2 = np.where(col_max == col_sum, 1, 0)
     #print("mask where",mask2)
-    #X = X[:,mask2] # this could be an alternative, where I filter X by positions that show diversity
-    #print("X",X)
+    X = X[:,mask == 1] # this could be an alternative, where I filter X by positions that show diversity
+    print("X",X)
     #log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     logging.info("Compiling model...") # jax first compiles code
 
@@ -284,7 +284,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8):
     logging.info("Fitting model...")
     opt_state = solver.init(params)
 
-    for _ in range(1000): # define number of iterations of optimizer
+    for _ in range(100): # define number of iterations of optimizer
         grad = jax.grad(loss)(params) # compute gradient
         updates, opt_state = solver.update(grad, opt_state, params) # update states
         params = optax.apply_updates(params, updates) # update parameters
