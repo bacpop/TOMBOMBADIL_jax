@@ -561,20 +561,24 @@ def plot_omega_coloured(params, is_extracellular, is_imputed, regression_mask):
     return fig, ax
 
 
-def plot_omega_by_domain(params, is_extracellular, is_imputed, regression_mask):
+def plot_omega_by_domain(params, is_extracellular, is_imputed, regression_mask,
+                         diversity_mask=None):
     """Strip + box plot comparing omega distributions for extracellular vs other sites.
 
     Each point is one alignment site; the x-axis has two groups (Extracellular,
-    Other).  Imputed and unannotated sites are excluded so only directly-annotated
-    sites are compared.  The omega=1 neutral line is shown for reference.
+    Other).  Imputed, unannotated, and invariant (no-diversity) sites are excluded
+    so only directly-annotated, variable sites are compared.  The omega=1 neutral
+    line is shown for reference.
     """
     omega   = np.array(positive(params["omega"]))
     is_ext  = np.array(is_extracellular, dtype=bool)
     is_imp  = np.array(is_imputed,       dtype=bool)
     reg_m   = np.array(regression_mask,  dtype=bool)
+    div_m   = np.array(diversity_mask, dtype=bool) if diversity_mask is not None \
+              else np.ones(len(omega), dtype=bool)
 
-    known_ext   = is_ext  & ~is_imp           # annotated extracellular
-    known_other = ~is_ext & ~is_imp & reg_m   # annotated non-extracellular
+    known_ext   = is_ext  & ~is_imp & div_m   # annotated extracellular, has diversity
+    known_other = ~is_ext & ~is_imp & reg_m & div_m  # annotated other, has diversity
 
     groups  = ["Other", "Extracellular"]
     colours = {"Extracellular": "tomato", "Other": "steelblue"}
@@ -729,7 +733,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
             _print_laplace_summary(params, se_nat)
         is_imputed_np = np.array(is_imputed, dtype=bool) if is_imputed is not None else np.zeros(len(positive(params["omega"])), dtype=bool)
         plot_omega_coloured(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool))
-        plot_omega_by_domain(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool))
+        plot_omega_by_domain(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool), diversity_mask=mask)
         plt.show()
         return
 
@@ -791,7 +795,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
 
         plot_regression(params, is_ext_np, is_imputed_np, reg_mask_np)
         plot_domain_comparison(omega_baseline, omega_domain, is_ext_np, is_imputed_np, reg_mask_np)
-        plot_omega_by_domain(params, is_ext_np, is_imputed_np, reg_mask_np)
+        plot_omega_by_domain(params, is_ext_np, is_imputed_np, reg_mask_np, diversity_mask=mask)
         plt.show()
 
     else:
