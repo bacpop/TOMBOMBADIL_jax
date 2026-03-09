@@ -57,7 +57,7 @@ def get_options():
     mGroup.add_argument('--regression-weight', type=float, default=0.1,
                         help='Weight of the domain regression term relative to the data likelihood (default 0.1). '
                              'Decrease to reduce influence on strong selection signals.')
-    mGroup.add_argument('--only_colour_domains', action='store_true', default=False,
+    mGroup.add_argument('--only-colour-domains', action='store_true', default=False,
                         help='Run the standard model (no regression) and produce a plot coloured by domain annotation. '
                              'Requires --domains and --reference.')
     mGroup.add_argument('--estimate-uncertainty', action='store_true', default=False,
