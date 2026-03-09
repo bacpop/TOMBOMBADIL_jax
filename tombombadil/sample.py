@@ -432,7 +432,7 @@ def _perturb_params(params, scale=0.5):
     return unflatten(flat + noise)
 
 
-def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=500):
+def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100):
     """Run the optimizer n_reps times and return all results plus the index of the best.
 
     Replicate 0 uses the unperturbed starting point; subsequent replicates add
@@ -561,6 +561,64 @@ def plot_omega_coloured(params, is_extracellular, is_imputed, regression_mask):
     return fig, ax
 
 
+def plot_omega_by_domain(params, is_extracellular, is_imputed, regression_mask):
+    """Strip + box plot comparing omega distributions for extracellular vs other sites.
+
+    Each point is one alignment site; the x-axis has two groups (Extracellular,
+    Other).  Imputed and unannotated sites are excluded so only directly-annotated
+    sites are compared.  The omega=1 neutral line is shown for reference.
+    """
+    omega   = np.array(positive(params["omega"]))
+    is_ext  = np.array(is_extracellular, dtype=bool)
+    is_imp  = np.array(is_imputed,       dtype=bool)
+    reg_m   = np.array(regression_mask,  dtype=bool)
+
+    known_ext   = is_ext  & ~is_imp           # annotated extracellular
+    known_other = ~is_ext & ~is_imp & reg_m   # annotated non-extracellular
+
+    groups  = ["Other", "Extracellular"]
+    colours = {"Extracellular": "tomato", "Other": "steelblue"}
+    masks   = {"Extracellular": known_ext, "Other": known_other}
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+
+    rng = np.random.default_rng(0)
+    for xi, group in enumerate(groups):
+        vals = omega[masks[group]]
+        if len(vals) == 0:
+            continue
+        colour = colours[group]
+        # Box (IQR) drawn manually so we keep log scale throughout
+        q25, q50, q75 = np.percentile(vals, [25, 50, 75])
+        # Draw box
+        ax.broken_barh([(xi - 0.2, 0.4)], [q25, q75 - q25],
+                       facecolor=colour, alpha=0.25, zorder=2)
+        # Median line
+        ax.plot([xi - 0.2, xi + 0.2], [q50, q50],
+                color=colour, linewidth=2, zorder=4)
+        # Whiskers (1.5 IQR)
+        iqr = q75 - q25
+        lo = max(vals.min(), q25 - 1.5 * iqr)
+        hi = min(vals.max(), q75 + 1.5 * iqr)
+        ax.plot([xi, xi], [lo, q25], color=colour, linewidth=1, zorder=3)
+        ax.plot([xi, xi], [q75, hi], color=colour, linewidth=1, zorder=3)
+        # Jittered strip
+        jitter = rng.uniform(-0.18, 0.18, size=len(vals))
+        ax.scatter(xi + jitter, vals, color=colour, alpha=0.5, s=14, zorder=5,
+                   label=f'{group} (n={len(vals)})')
+
+    ax.axhline(1.0, color='black', linestyle='-', linewidth=2, alpha=0.8,
+               label='ω = 1 (neutral)', zorder=6)
+    ax.set_yscale('log')
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(groups)
+    ax.set_ylabel('ω (dN/dS, log scale)')
+    ax.set_title('ω distribution by domain annotation\n(annotated sites only)')
+    ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0, fontsize=8)
+    plt.tight_layout()
+    return fig, ax
+
+
 def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
                 is_extracellular=None, is_imputed=None, regression_mask=None,
                 regression_weight=0.1, only_colour_domains=False,
@@ -671,6 +729,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
             _print_laplace_summary(params, se_nat)
         is_imputed_np = np.array(is_imputed, dtype=bool) if is_imputed is not None else np.zeros(len(positive(params["omega"])), dtype=bool)
         plot_omega_coloured(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool))
+        plot_omega_by_domain(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool))
         plt.show()
         return
 
@@ -732,6 +791,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
 
         plot_regression(params, is_ext_np, is_imputed_np, reg_mask_np)
         plot_domain_comparison(omega_baseline, omega_domain, is_ext_np, is_imputed_np, reg_mask_np)
+        plot_omega_by_domain(params, is_ext_np, is_imputed_np, reg_mask_np)
         plt.show()
 
     else:
