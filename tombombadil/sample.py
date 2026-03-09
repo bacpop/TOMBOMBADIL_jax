@@ -563,12 +563,12 @@ def plot_omega_coloured(params, is_extracellular, is_imputed, regression_mask):
 
 def plot_omega_by_domain(params, is_extracellular, is_imputed, regression_mask,
                          diversity_mask=None):
-    """Strip + box plot comparing omega distributions for extracellular vs other sites.
+    """Overlapping histogram comparing omega distributions for extracellular vs other sites.
 
-    Each point is one alignment site; the x-axis has two groups (Extracellular,
-    Other).  Imputed, unannotated, and invariant (no-diversity) sites are excluded
-    so only directly-annotated, variable sites are compared.  The omega=1 neutral
-    line is shown for reference.
+    Omega appears on the x-axis (log scale); the y-axis shows proportion (density).
+    Imputed, unannotated, and invariant (no-diversity) sites are excluded so only
+    directly-annotated, variable sites are compared.  The omega=1 neutral line is
+    shown for reference.
     """
     omega   = np.array(positive(params["omega"]))
     is_ext  = np.array(is_extracellular, dtype=bool)
@@ -577,47 +577,38 @@ def plot_omega_by_domain(params, is_extracellular, is_imputed, regression_mask,
     div_m   = np.array(diversity_mask, dtype=bool) if diversity_mask is not None \
               else np.ones(len(omega), dtype=bool)
 
-    known_ext   = is_ext  & ~is_imp & div_m   # annotated extracellular, has diversity
-    known_other = ~is_ext & ~is_imp & reg_m & div_m  # annotated other, has diversity
+    known_ext   = is_ext  & ~is_imp & div_m
+    known_other = ~is_ext & ~is_imp & reg_m & div_m
 
     groups  = ["Other", "Extracellular"]
     colours = {"Extracellular": "tomato", "Other": "steelblue"}
     masks   = {"Extracellular": known_ext, "Other": known_other}
 
-    fig, ax = plt.subplots(figsize=(5, 5))
+    # Shared log-spaced bins across both groups
+    all_vals = omega[known_ext | known_other]
+    lo = np.log10(max(all_vals.min(), 1e-3))
+    hi = np.log10(all_vals.max() * 1.05)
+    bins = np.logspace(lo, hi, 30)
 
-    rng = np.random.default_rng(0)
-    for xi, group in enumerate(groups):
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    for group in groups:
         vals = omega[masks[group]]
         if len(vals) == 0:
             continue
-        colour = colours[group]
-        # Box (IQR) drawn manually so we keep log scale throughout
-        q25, q50, q75 = np.percentile(vals, [25, 50, 75])
-        # Draw box
-        ax.broken_barh([(xi - 0.2, 0.4)], [q25, q75 - q25],
-                       facecolor=colour, alpha=0.25, zorder=2)
-        # Median line
-        ax.plot([xi - 0.2, xi + 0.2], [q50, q50],
-                color=colour, linewidth=2, zorder=4)
-        # Whiskers (1.5 IQR)
-        iqr = q75 - q25
-        lo = max(vals.min(), q25 - 1.5 * iqr)
-        hi = min(vals.max(), q75 + 1.5 * iqr)
-        ax.plot([xi, xi], [lo, q25], color=colour, linewidth=1, zorder=3)
-        ax.plot([xi, xi], [q75, hi], color=colour, linewidth=1, zorder=3)
-        # Jittered strip
-        jitter = rng.uniform(-0.18, 0.18, size=len(vals))
-        ax.scatter(xi + jitter, vals, color=colour, alpha=0.5, s=14, zorder=5,
-                   label=f'{group} (n={len(vals)})')
+        ax.hist(vals, bins=bins, density=True, color=colours[group],
+                alpha=0.4, label=f'{group} (n={len(vals)})', zorder=3)
+        # Outline for clarity
+        ax.hist(vals, bins=bins, density=True, color=colours[group],
+                histtype='step', linewidth=1.2, zorder=4)
 
-    ax.axhline(1.0, color='black', linestyle='-', linewidth=2, alpha=0.8,
-               label='ω = 1 (neutral)', zorder=6)
+    ax.axvline(1.0, color='black', linestyle='-', linewidth=2, alpha=0.8,
+               label='ω = 1 (neutral)', zorder=5)
+    ax.set_xscale('log')
     ax.set_yscale('log')
-    ax.set_xticks([0, 1])
-    ax.set_xticklabels(groups)
-    ax.set_ylabel('ω (dN/dS, log scale)')
-    ax.set_title('ω distribution by domain annotation\n(annotated sites only)')
+    ax.set_xlabel('ω (dN/dS, log scale)')
+    ax.set_ylabel('Proportion (log scale)')
+    ax.set_title('ω distribution by domain annotation\n(annotated, variable sites only)')
     ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0, fontsize=8)
     plt.tight_layout()
     return fig, ax
