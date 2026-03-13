@@ -54,24 +54,20 @@ def get_options():
                         help='UniProt JSON file with domain annotations for hierarchical regression on omega')
     mGroup.add_argument('--reference', type=str, default=None,
                         help='Reference protein FASTA for mapping domain positions to alignment columns (required with --domains)')
-    mGroup.add_argument('--regression-weight', type=float, default=0.1,
-                        help='Weight of the domain regression term relative to the data likelihood (default 0.1). '
-                             'Decrease to reduce influence on strong selection signals.')
     mGroup.add_argument('--only-colour-domains', action='store_true', default=False,
                         help='Run the standard model (no regression) and produce a plot coloured by domain annotation. '
                              'Requires --domains and --reference.')
     mGroup.add_argument('--estimate-uncertainty', action='store_true', default=False,
-                        help='Compute per-parameter standard errors via diagonal Laplace approximation '
-                             '(Hessian-based). Can be memory-intensive for large alignments.')
+                        help='Print posterior credible intervals (95%%) for all parameters from NUTS samples.')
     mGroup.add_argument('--fit-replicates', type=int, default=1, metavar='N',
-                        help='Run the optimiser N times with random perturbations of the starting values '
-                             'and produce a convergence plot. Best replicate (highest log-likelihood) is used '
-                             'for all downstream outputs (default: 1).')
+                        help='Run N independent NUTS chains from perturbed starting values '
+                             'and produce a convergence plot. Best chain (highest log-likelihood at '
+                             'posterior mean) is used for all downstream outputs (default: 1).')
 
     sGroup = parser.add_argument_group('Sampling options')
-    sGroup.add_argument('--sample-it', type=int, default=500,
+    sGroup.add_argument('--sample-it', type=int, default=10,
                         help='Sampling iterations')
-    sGroup.add_argument('--warmup-it', type=int, default=500,
+    sGroup.add_argument('--warmup-it', type=int, default=10,
                         help='Warmup iterations')
 
     hGroup = parser.add_argument_group('Hardware options')
@@ -173,7 +169,7 @@ def main():
         )
 
     run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus,
-                is_extracellular, is_imputed, regression_mask, options.regression_weight,
+                is_extracellular, is_imputed, regression_mask,
                 only_colour_domains=options.only_colour_domains,
                 estimate_uncertainty=options.estimate_uncertainty,
                 fit_replicates=options.fit_replicates)
