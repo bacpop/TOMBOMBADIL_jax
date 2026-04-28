@@ -453,8 +453,12 @@ def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100):
     all_lls = []
     for rep in range(n_reps):
         start = dict(start_params) if rep == 0 else _perturb_params(start_params)
+        schedule = optax.cosine_decay_schedule(
+            init_value=0.2, decay_steps=n_iter, alpha=1e-3 / 0.2
+        )
         solver = optax.multi_transform(
-            {"vec": optax.adam(1e-1), "scalar": optax.adam(1e-1)}, param_labels=param_labels
+            {"vec": optax.adam(schedule), "scalar": optax.adam(schedule)},
+            param_labels=param_labels,
         )
         params_rep = _optimize_params(fn, start, solver, n_iter, verbose=False)
         ll = float(fn(params_rep))
