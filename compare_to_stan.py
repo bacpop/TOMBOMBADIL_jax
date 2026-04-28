@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import csv
+import json
 import logging
 import os
 import re
@@ -224,6 +225,110 @@ def fit_tombombadil(X, pi_eq, n_iter: int = 500) -> np.ndarray:
     return omega_map, scalar_params
 
 
+def load_slac_significance(json_path: str, p_threshold: float = 0.05):
+    """Extract per-site selection significance from a HyPhy SLAC JSON file.
+
+    Uses the binomial p-values from the AVERAGED by-site MLE table:
+      col 8 — P[dN/dS > 1] (positive selection)
+      col 9 — P[dN/dS < 1] (negative selection)
+
+    Returns:
+        pos_selected: bool array, True where P[dN/dS > 1] < p_threshold
+        neg_selected: bool array, True where P[dN/dS < 1] < p_threshold
+    """
+    with open(json_path) as f:
+        data = json.load(f)
+    rows = data["MLE"]["content"]["0"]["by-site"]["AVERAGED"]
+    n = len(rows)
+    pos_selected = np.zeros(n, dtype=bool)
+    neg_selected = np.zeros(n, dtype=bool)
+    for i, row in enumerate(rows):
+        p_pos, p_neg = row[8], row[9]
+        if p_pos is not None and p_pos < p_threshold:
+            pos_selected[i] = True
+        if p_neg is not None and p_neg < p_threshold:
+            neg_selected[i] = True
+    return pos_selected, neg_selected
+
+
+def load_fubar_dnds(json_path: str) -> np.ndarray:
+    """Extract per-site mean posterior dN/dS (beta/alpha) from a HyPhy FUBAR JSON file.
+
+    Returns:
+        omega: float64 array of shape (n_sites,), NaN where alpha is zero
+    """
+    with open(json_path) as f:
+        data = json.load(f)
+    rows = data["MLE"]["content"]["0"]
+    return np.array([
+        row[1] / row[0] if row[0] > 0 else np.nan
+        for row in rows
+    ])
+
+
+def plot_per_site_slac_highlighted(omega_map, omega_median_stan, omega_lo_stan, omega_hi_stan,
+                                    pos_selected, neg_selected,
+                                    is_extracellular=None, is_imputed=None,
+                                    regression_mask=None, log_scale=True,
+                                    p_threshold=0.05):
+    """Per-site comparison of TOMBOMBADIL MAP and Stan posterior, with SLAC significance rug.
+
+    Significant sites (SLAC binomial p < p_threshold) are shown as coloured ticks
+    at the bottom of the plot: orange for positive selection, blue for negative selection.
+    """
+    n = len(omega_map)
+    sites = np.arange(n)
+
+    fig, ax = plt.subplots(figsize=(16, 4))
+
+    ax.fill_between(sites, omega_lo_stan, omega_hi_stan,
+                    color="grey", alpha=0.2, label="Stan 95 % CI")
+    ax.plot(sites, omega_median_stan, color="grey", linewidth=0.8, label="Stan posterior median")
+
+    if is_extracellular is not None:
+        is_ext  = np.array(is_extracellular, dtype=bool)
+        is_imp  = np.array(is_imputed,       dtype=bool)
+        reg_m   = np.array(regression_mask,  dtype=bool)
+        known_ext   = is_ext  & ~is_imp
+        known_other = ~is_ext & ~is_imp & reg_m
+        imputed     = is_imp
+        na_sites    = ~reg_m
+        ax.scatter(sites[known_other], omega_map[known_other], color="steelblue", s=6, alpha=0.6,
+                   linewidths=0, label="TOMBOMBADIL MAP (other)", zorder=4)
+        ax.scatter(sites[known_ext],   omega_map[known_ext],   color="tomato",    s=6, alpha=0.8,
+                   linewidths=0, label="TOMBOMBADIL MAP (extracellular)", zorder=4)
+        ax.scatter(sites[imputed],     omega_map[imputed],     color="grey",      s=6, alpha=0.5,
+                   linewidths=0, label="TOMBOMBADIL MAP (imputed)", zorder=3)
+        if na_sites.any():
+            ax.scatter(sites[na_sites], omega_map[na_sites],   color="lightgrey", s=4, alpha=0.4,
+                       linewidths=0, label="TOMBOMBADIL MAP (unknown)", zorder=2)
+    else:
+        ax.scatter(sites, omega_map, color="black", s=6, alpha=0.6, linewidths=0,
+                   label="TOMBOMBADIL MAP", zorder=4)
+
+    ax.axhline(1.0, color="red", linestyle="--", linewidth=1.2, alpha=0.8, label="ω = 1 (neutral)")
+
+    trans = ax.get_xaxis_transform()
+    if pos_selected.any():
+        ax.vlines(sites[pos_selected], 0, 0.04, transform=trans,
+                  color="darkorange", linewidth=1.2, alpha=0.9,
+                  label=f"SLAC positive selection (p<{p_threshold})", zorder=5)
+    if neg_selected.any():
+        ax.vlines(sites[neg_selected], 0, 0.04, transform=trans,
+                  color="royalblue", linewidth=1.2, alpha=0.9,
+                  label=f"SLAC negative selection (p<{p_threshold})", zorder=5)
+
+    if log_scale:
+        ax.set_yscale("log")
+    ax.set_xlabel("Alignment site index")
+    ax.set_ylabel("ω (dN/dS, log scale)" if log_scale else "ω (dN/dS)")
+    ax.set_title("Per-site ω: TOMBOMBADIL MAP vs. Stan MCMC (SLAC significant sites highlighted)")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), borderaxespad=0, fontsize=8)
+    ax.set_xlim(-1, n)
+    plt.tight_layout()
+    return fig
+
+
 def plot_params_comparison(jax_params: dict, stan_params: dict):
     """Forest-plot comparison of scalar GTR parameters: Stan posterior vs. TOMBOMBADIL MAP."""
     params = [p for p in stan_params if p in jax_params]
@@ -374,6 +479,10 @@ def main():
                         help="UniProt JSON with domain annotations (optional)")
     parser.add_argument("--reference-protein", default=None,
                         help="Reference protein FASTA for alignment-to-protein mapping (required with --domain-json)")
+    parser.add_argument("--slac-json", default=None,
+                        help="HyPhy SLAC JSON output to highlight significant sites (optional)")
+    parser.add_argument("--slac-p-threshold", type=float, default=0.05,
+                        help="P-value threshold for SLAC significance (default: 0.05)")
     args = parser.parse_args()
 
     logging.info("Reading alignment: %s", args.alignment)
@@ -411,6 +520,13 @@ def main():
             args.domain_json, args.alignment, args.reference_protein, n_sites
         )
 
+    slac_pos = slac_neg = None
+    if args.slac_json:
+        logging.info("Loading SLAC significance from: %s", args.slac_json)
+        slac_pos, slac_neg = load_slac_significance(args.slac_json, args.slac_p_threshold)
+        logging.info("  %d positively selected, %d negatively selected sites (p<%s)",
+                     int(slac_pos.sum()), int(slac_neg.sum()), args.slac_p_threshold)
+
     logging.info("Fitting TOMBOMBADIL (MAP, %d iterations)...", args.iter)
     omega_map, jax_scalar_params = fit_tombombadil(X, pi_eq, n_iter=args.iter)
 
@@ -422,10 +538,9 @@ def main():
         plt.close(fig1)
 
         fig1b = plot_per_site(omega_map, omega_median, omega_lo, omega_hi,
-                             is_extracellular, is_imputed, regression_mask, log_scale=False)
+                              is_extracellular, is_imputed, regression_mask, log_scale=False)
         pdf.savefig(fig1b)
         plt.close(fig1b)
-
 
         fig2 = plot_scatter(omega_map, omega_median, omega_lo, omega_hi,
                             is_extracellular, is_imputed, regression_mask)
@@ -435,6 +550,23 @@ def main():
         fig3 = plot_params_comparison(jax_scalar_params, stan_scalar_params)
         pdf.savefig(fig3)
         plt.close(fig3)
+
+        if slac_pos is not None:
+            fig4 = plot_per_site_slac_highlighted(
+                omega_map, omega_median, omega_lo, omega_hi, slac_pos, slac_neg,
+                is_extracellular, is_imputed, regression_mask,
+                p_threshold=args.slac_p_threshold,
+            )
+            pdf.savefig(fig4)
+            plt.close(fig4)
+
+            fig4b = plot_per_site_slac_highlighted(
+                omega_map, omega_median, omega_lo, omega_hi, slac_pos, slac_neg,
+                is_extracellular, is_imputed, regression_mask, log_scale=False,
+                p_threshold=args.slac_p_threshold,
+            )
+            pdf.savefig(fig4b)
+            plt.close(fig4b)
 
     logging.info("Done — %s", args.output)
 
