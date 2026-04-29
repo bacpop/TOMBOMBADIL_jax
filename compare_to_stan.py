@@ -183,7 +183,7 @@ def _cmd_exists(cmd: str) -> bool:
         return False
 
 
-def fit_tombombadil(X, pi_eq, n_iter: int = 500, include_invariant: bool = False, output: str = None) -> np.ndarray:
+def fit_tombombadil(X, pi_eq, n_iter: int = 500, include_invariant: bool = True, output: str = None) -> np.ndarray:
     """Run the TOMBOMBADIL gradient optimizer and return MAP omega estimates.
 
     Args:
@@ -486,9 +486,9 @@ def main():
                         help="HyPhy SLAC JSON output to highlight significant sites (optional)")
     parser.add_argument("--slac-p-threshold", type=float, default=0.05,
                         help="P-value threshold for SLAC significance (default: 0.05)")
-    parser.add_argument("--include-invariant", action="store_true", default=False,
-                        help="Include invariant sites in the GTR/theta loss (omega gradients at "
-                             "invariant sites are always stopped; default: off)")
+    parser.add_argument("--exclude-invariant", action="store_true", default=False,
+                        help="Exclude invariant sites from the GTR/theta loss and stop omega gradients "
+                             "at those sites (default: invariant sites included, prior regularises omegas)")
     parser.add_argument("--output-jax", default=None, metavar="STEM",
                         help="Save JAX MAP estimates to CSV. Writes STEM_omega.csv and STEM_scalar.csv "
                              "(default: do not save)")
@@ -537,7 +537,7 @@ def main():
                      int(slac_pos.sum()), int(slac_neg.sum()), args.slac_p_threshold)
 
     logging.info("Fitting TOMBOMBADIL (MAP, %d iterations)...", args.iter)
-    omega_map, jax_scalar_params = fit_tombombadil(X, pi_eq, n_iter=args.iter, include_invariant=args.include_invariant, output=args.output_jax)
+    omega_map, jax_scalar_params = fit_tombombadil(X, pi_eq, n_iter=args.iter, include_invariant=not args.exclude_invariant, output=args.output_jax)
 
     logging.info("Writing plots to: %s", args.output)
     with PdfPages(args.output) as pdf:
