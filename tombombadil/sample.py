@@ -173,7 +173,7 @@ def prior_log_likelihood(raw_x):
     return omega_prior + gtr_prior
 
 
-def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None, regression_mask=None, regression_weight=0.1, include_invariant=False): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
+def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None, regression_mask=None, regression_weight=0.1, include_invariant=True): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
     batched_loss = jax.vmap(
         model,
         in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, 1)  # map over matrices + data
@@ -186,14 +186,15 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=No
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         x = jax.tree.map(positive, raw_x)
 
-        x["omega"] = jnp.where( # stops gradient for sites without diversity
-            mask == 1,
-            x["omega"],
-            jax.lax.stop_gradient(x["omega"])
-        )
+        if not include_invariant:
+            x["omega"] = jnp.where( # stops gradient for sites without diversity
+                mask == 1,
+                x["omega"],
+                jax.lax.stop_gradient(x["omega"])
+            )
 
         x["omega"] = jnp.where( # stops gradients for omegas <= 0.01
-            x["omega"] > 0.3,
+            x["omega"] > 0.01,
             x["omega"],
             jax.lax.stop_gradient(x["omega"])
         )
@@ -687,7 +688,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
                 is_extracellular=None, is_imputed=None, regression_mask=None,
                 regression_weight=0.1, only_colour_domains=False,
                 estimate_uncertainty=False, fit_replicates=1,
-                include_invariant=False, output=None):
+                include_invariant=True, output=None):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
