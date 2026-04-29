@@ -68,7 +68,7 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, pim
     #print(pimult)
     #A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix
     #A = build_GTR(1, 1, 1, 1, 1, 1, 1, pimat, pimult) # same as NY98?
-    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix # for building the GTR matrix you want omega=1 (mean mutation rate under neutrality)
+    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix # for building the GTR matrix you want mu=1 (mean mutation rate under neutrality)
     #print(A) # is all zeros at the moment
     #print(pi_eq)
     #print(jnp.diagonal(A))
@@ -154,21 +154,23 @@ def prior_log_likelihood(raw_x):
     """Log prior contributions for MAP regularisation.
 
     omega:     LogNormal(log(0.5), 1) — prior median 0.5, weakly pulls toward
-               purifying selection. Evaluated on the natural scale via positive().
-    GTR/theta: N(0, 1) on unconstrained (raw) parameters.
-
-    Both terms are put on the per-site scale of the mean log-likelihood so that
-    prior strength does not grow with alignment length.
+               purifying selection. Mean over sites (same scale as per-site likelihood).
+    GTR/theta: Half-normal matching Stan's std_normal() T[0,] — NOT divided by n_sites.
+               These parameters are shared across all sites; only the prior pins their
+               global scale (the likelihood is flat when all rates are scaled together).
     """
-    n_sites = jnp.size(raw_x["omega"])
 
     omega = positive(raw_x["omega"])
     omega_prior = jnp.mean(jax.scipy.stats.norm.logpdf(jnp.log(omega), jnp.log(0.5), 1.0))
 
+    # Half-normal prior matching Stan's std_normal() T[0,]: evaluate N(0,1) at the
+    # natural-scale parameter (which is always positive, so always in the valid domain).
+    # NOT divided by n_sites: GTR/theta parameters are shared across all sites, so their
+    # prior must contribute at full weight to break the scale non-identifiability
+    # (multiplying all rates by k leaves the likelihood unchanged, only the prior pins the scale).
     gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
-    gtr_lp = jnp.sum(jnp.array([jax.scipy.stats.norm.logpdf(raw_x[k], 0.0, 1.0)
-                                  for k in gtr_keys]))
-    gtr_prior = gtr_lp / n_sites
+    gtr_prior = jnp.sum(jnp.array([jax.scipy.stats.norm.logpdf(positive(raw_x[k]), 0.0, 1.0)
+                                    for k in gtr_keys]))
 
     return omega_prior + gtr_prior
 
