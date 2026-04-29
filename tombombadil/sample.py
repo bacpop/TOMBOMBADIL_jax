@@ -150,6 +150,29 @@ def regression_log_likelihood(raw_x, is_extracellular, regression_mask):
     return jnp.sum(per_site * regression_mask) / jnp.sum(regression_mask)
 
 
+def prior_log_likelihood(raw_x):
+    """Log prior contributions for MAP regularisation.
+
+    omega:     LogNormal(log(0.5), 1) — prior median 0.5, weakly pulls toward
+               purifying selection. Evaluated on the natural scale via positive().
+    GTR/theta: N(0, 1) on unconstrained (raw) parameters.
+
+    Both terms are put on the per-site scale of the mean log-likelihood so that
+    prior strength does not grow with alignment length.
+    """
+    n_sites = jnp.size(raw_x["omega"])
+
+    omega = positive(raw_x["omega"])
+    omega_prior = jnp.mean(jax.scipy.stats.norm.logpdf(jnp.log(omega), jnp.log(0.5), 1.0))
+
+    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    gtr_lp = jnp.sum(jnp.array([jax.scipy.stats.norm.logpdf(raw_x[k], 0.0, 1.0)
+                                  for k in gtr_keys]))
+    gtr_prior = gtr_lp / n_sites
+
+    return omega_prior + gtr_prior
+
+
 def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None, regression_mask=None, regression_weight=0.1, include_invariant=False): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
     batched_loss = jax.vmap(
         model,
@@ -183,6 +206,7 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=No
         else:
             mask_f = mask.astype(jnp.float64)
             total = jnp.sum(losses * mask_f) / jnp.maximum(jnp.sum(mask_f), 1.0)
+        total = total + prior_log_likelihood(raw_x)
         if is_extracellular is not None:
             # regression_weight controls how strongly the regression term influences omega
             # relative to the data likelihood. Values < 1 prevent the regression from
