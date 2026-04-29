@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import csv as _csv
 import logging
 import numpy as np
 import scipy
@@ -149,7 +150,7 @@ def regression_log_likelihood(raw_x, is_extracellular, regression_mask):
     return jnp.sum(per_site * regression_mask) / jnp.sum(regression_mask)
 
 
-def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None, regression_mask=None, regression_weight=0.1): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
+def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None, regression_mask=None, regression_weight=0.1, include_invariant=False): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
     batched_loss = jax.vmap(
         model,
         in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, 1)  # map over matrices + data
@@ -169,7 +170,7 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=No
         )
 
         x["omega"] = jnp.where( # stops gradients for omegas <= 0.01
-            x["omega"] > 0.01,
+            x["omega"] > 0.3,
             x["omega"],
             jax.lax.stop_gradient(x["omega"])
         )
@@ -177,7 +178,11 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=No
 
         losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
         #print('losses: ',losses)
-        total = jnp.mean(losses)
+        if include_invariant:
+            total = jnp.mean(losses)
+        else:
+            mask_f = mask.astype(jnp.float64)
+            total = jnp.sum(losses * mask_f) / jnp.maximum(jnp.sum(mask_f), 1.0)
         if is_extracellular is not None:
             # regression_weight controls how strongly the regression term influences omega
             # relative to the data likelihood. Values < 1 prevent the regression from
@@ -424,6 +429,42 @@ def _print_laplace_summary(params, se_natural):
     print("----------------------------------------\n")
 
 
+def save_params(output_stem: str, params: dict, mask: np.ndarray) -> None:
+    """Save MAP parameter estimates to two CSV files.
+
+    {output_stem}_omega.csv   — per-site omega (site, omega_map, variant)
+    {output_stem}_scalar.csv  — scalar parameters (variable, value)
+
+    GTR parameters (alpha … theta) are on the natural scale. Regression
+    parameters alpha_reg and beta_reg are on the log-omega scale (their
+    natural parameterisation); sigma is exp(log_sigma).
+    """
+    omega_path  = output_stem + "_omega.csv"
+    scalar_path = output_stem + "_scalar.csv"
+
+    omega = np.array(positive(params["omega"]))
+    with open(omega_path, "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["site", "omega_map", "variant"])
+        for i, (om, mk) in enumerate(zip(omega, mask), start=1):
+            w.writerow([i, float(om), int(mk)])
+    logging.info("Saved omega estimates to: %s", omega_path)
+
+    scalar_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    rows = [(k, float(positive(params[k]))) for k in scalar_keys if k in params]
+    if "alpha_reg" in params:
+        rows += [
+            ("alpha_reg", float(params["alpha_reg"])),
+            ("beta_reg",  float(params["beta_reg"])),
+            ("sigma",     float(jnp.exp(params["log_sigma"]))),
+        ]
+    with open(scalar_path, "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["variable", "value"])
+        w.writerows(rows)
+    logging.info("Saved scalar parameters to: %s", scalar_path)
+
+
 def _perturb_params(params, scale=0.5):
     """Add Normal(0, scale) noise to all parameters in raw (unconstrained) space."""
     key = jax.random.PRNGKey(int(np.random.randint(0, 2**31)))
@@ -621,7 +662,8 @@ def plot_omega_by_domain(params, is_extracellular, is_imputed, regression_mask,
 def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
                 is_extracellular=None, is_imputed=None, regression_mask=None,
                 regression_weight=0.1, only_colour_domains=False,
-                estimate_uncertainty=False, fit_replicates=1):
+                estimate_uncertainty=False, fit_replicates=1,
+                include_invariant=False, output=None):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -716,7 +758,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
     if only_colour_domains and is_extracellular is not None:
         # Run standard model (no regression), then show domain-coloured plot
         logging.info(f"Running optimization (no regression, domain colours only) — {fit_replicates} replicate(s)...")
-        fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
+        fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
         all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates)
         params = all_params[best_idx]
 
@@ -729,6 +771,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         is_imputed_np = np.array(is_imputed, dtype=bool) if is_imputed is not None else np.zeros(len(positive(params["omega"])), dtype=bool)
         plot_omega_coloured(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool))
         plot_omega_by_domain(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool), diversity_mask=mask)
+        if output is not None:
+            save_params(output, params, mask)
         plt.show()
         return
 
@@ -739,7 +783,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
 
         # --- Baseline run (single, silent — used only for the comparison plot) ---
         logging.info("Running baseline optimization (no domain regression)...")
-        fn_baseline = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
+        fn_baseline = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
         baseline_all, baseline_best = _run_replicates(fn_baseline, base_params, base_labels, 1)
         params_baseline = baseline_all[baseline_best]
         omega_baseline = positive(params_baseline["omega"])
@@ -760,7 +804,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         domain_labels["log_sigma"] = "scalar"
 
         fn_domain = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
-                            is_extracellular, regression_mask, regression_weight)
+                            is_extracellular, regression_mask, regression_weight,
+                            include_invariant=include_invariant)
         all_domain_params, best_idx = _run_replicates(fn_domain, domain_params, domain_labels, fit_replicates)
         params = all_domain_params[best_idx]
         omega_domain = positive(params["omega"])
@@ -791,12 +836,14 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         plot_regression(params, is_ext_np, is_imputed_np, reg_mask_np)
         plot_domain_comparison(omega_baseline, omega_domain, is_ext_np, is_imputed_np, reg_mask_np)
         plot_omega_by_domain(params, is_ext_np, is_imputed_np, reg_mask_np, diversity_mask=mask)
+        if output is not None:
+            save_params(output, params, mask)
         plt.show()
 
     else:
         # Run without domain regression
         logging.info(f"Running optimization — {fit_replicates} replicate(s)...")
-        fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
+        fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
         all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates)
         params = all_params[best_idx]
 
@@ -815,6 +862,8 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
             _, se_nat = compute_laplace_se(fn, params)
             _print_laplace_summary(params, se_nat)
 
+        if output is not None:
+            save_params(output, params, mask)
         plt.plot(np.array(positive(params["omega"])), 'o', color='black')
         plt.show()
 
