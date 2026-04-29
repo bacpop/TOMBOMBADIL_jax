@@ -38,6 +38,7 @@ from tombombadil.sample import (
     _run_replicates,
     make_fn,
     positive,
+    save_params,
     softplus_inverse,
     transforms,
 )
@@ -182,7 +183,7 @@ def _cmd_exists(cmd: str) -> bool:
         return False
 
 
-def fit_tombombadil(X, pi_eq, n_iter: int = 500) -> np.ndarray:
+def fit_tombombadil(X, pi_eq, n_iter: int = 500, include_invariant: bool = False, output: str = None) -> np.ndarray:
     """Run the TOMBOMBADIL gradient optimizer and return MAP omega estimates.
 
     Args:
@@ -217,11 +218,13 @@ def fit_tombombadil(X, pi_eq, n_iter: int = 500) -> np.ndarray:
         "delta": "scalar", "epsilon": "scalar", "eta": "scalar", "theta": "scalar",
     }
 
-    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask)
+    fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
     all_params, best_idx = _run_replicates(fn, base_params, base_labels, n_reps=1, n_iter=n_iter)
     best = all_params[best_idx]
     omega_map = np.array(positive(best["omega"]))
     scalar_params = {p: float(positive(best[p])) for p in _SCALAR_PARAMS}
+    if output is not None:
+        save_params(output, best, mask)
     return omega_map, scalar_params
 
 
@@ -483,6 +486,12 @@ def main():
                         help="HyPhy SLAC JSON output to highlight significant sites (optional)")
     parser.add_argument("--slac-p-threshold", type=float, default=0.05,
                         help="P-value threshold for SLAC significance (default: 0.05)")
+    parser.add_argument("--include-invariant", action="store_true", default=False,
+                        help="Include invariant sites in the GTR/theta loss (omega gradients at "
+                             "invariant sites are always stopped; default: off)")
+    parser.add_argument("--output-jax", default=None, metavar="STEM",
+                        help="Save JAX MAP estimates to CSV. Writes STEM_omega.csv and STEM_scalar.csv "
+                             "(default: do not save)")
     args = parser.parse_args()
 
     logging.info("Reading alignment: %s", args.alignment)
@@ -528,7 +537,7 @@ def main():
                      int(slac_pos.sum()), int(slac_neg.sum()), args.slac_p_threshold)
 
     logging.info("Fitting TOMBOMBADIL (MAP, %d iterations)...", args.iter)
-    omega_map, jax_scalar_params = fit_tombombadil(X, pi_eq, n_iter=args.iter)
+    omega_map, jax_scalar_params = fit_tombombadil(X, pi_eq, n_iter=args.iter, include_invariant=args.include_invariant, output=args.output_jax)
 
     logging.info("Writing plots to: %s", args.output)
     with PdfPages(args.output) as pdf:

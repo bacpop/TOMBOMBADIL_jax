@@ -67,6 +67,12 @@ def get_options():
                         help='Run the optimiser N times with random perturbations of the starting values '
                              'and produce a convergence plot. Best replicate (highest log-likelihood) is used '
                              'for all downstream outputs (default: 1).')
+    mGroup.add_argument('--include-invariant', action='store_true', default=False,
+                        help='Include invariant sites in the GTR/theta loss. Omega gradients at invariant '
+                             'sites are always stopped regardless of this flag (default: off).')
+    mGroup.add_argument('--output', type=str, default=None, metavar='STEM',
+                        help='Save MAP estimates to CSV. Writes STEM_omega.csv (per-site omega) and '
+                             'STEM_scalar.csv (GTR/regression parameters). Default: do not save.')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
@@ -176,7 +182,9 @@ def main():
                 is_extracellular, is_imputed, regression_mask, options.regression_weight,
                 only_colour_domains=options.only_colour_domains,
                 estimate_uncertainty=options.estimate_uncertainty,
-                fit_replicates=options.fit_replicates)
+                fit_replicates=options.fit_replicates,
+                include_invariant=options.include_invariant,
+                output=options.output)
 
 if __name__ == "__main__":
     main()
