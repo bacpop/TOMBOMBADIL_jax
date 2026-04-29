@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Folder Names
+- Target folder: TOMMBOMBADIL_jax
+- Absolute path: /Users/llorenz/Documents/PhD_Project/Code/SelectionModel/TOMBOMBADIL_jax_vibecoding/TOMBOMBADIL_jax
+
 ## Project Overview
 
 TOMBOMBADIL (Tree-free Omega Mapping By Observing Mutations of Bases and Amino acids Distributed Inside Loci) is a JAX rewrite of a codon-level selection model. It estimates per-site dN/dS ratios (omega) from a codon alignment without requiring a phylogenetic tree.
