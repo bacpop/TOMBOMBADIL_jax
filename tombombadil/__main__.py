@@ -71,15 +71,13 @@ def get_options():
                         help='Exclude invariant sites from the GTR/theta loss and stop omega gradients '
                              'at those sites. By default invariant sites are included and the prior '
                              'regularises their omega estimates.')
-    mGroup.add_argument('--output', type=str, default=None, metavar='STEM',
+    mGroup.add_argument('--output-jax', type=str, default=None, metavar='STEM',
                         help='Save MAP estimates to CSV. Writes STEM_omega.csv (per-site omega) and '
                              'STEM_scalar.csv (GTR/regression parameters). Default: do not save.')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
                         help='Sampling iterations')
-    sGroup.add_argument('--warmup-it', type=int, default=500,
-                        help='Warmup iterations')
 
     hGroup = parser.add_argument_group('Hardware options')
     sGroup.add_argument('--platform', choices=['cpu', 'gpu', 'tpu'], default='cpu',
@@ -179,13 +177,13 @@ def main():
             options.domains, options.alignment, options.reference, X.shape[1]
         )
 
-    run_sampler(X, pi, options.warmup_it, options.sample_it, options.platform, options.cpus,
+    run_sampler(X, pi, options.sample_it, options.platform, options.cpus,
                 is_extracellular, is_imputed, regression_mask, options.regression_weight,
                 only_colour_domains=options.only_colour_domains,
                 estimate_uncertainty=options.estimate_uncertainty,
                 fit_replicates=options.fit_replicates,
                 include_invariant=not options.exclude_invariant,
-                output=options.output)
+                output=options.output_jax)
 
 if __name__ == "__main__":
     main()
