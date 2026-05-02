@@ -109,14 +109,24 @@ write.csv(out, "{csv_path}", row.names = FALSE, quote = FALSE)
     )
 
 
-_SCALAR_PARAMS = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+_SCALAR_PARAMS = ["alpha", "beta", "gamma", "delta", "epsilon", "theta"]
 
 
 def load_stan_scalar_params(rds_path: str) -> dict:
     """Extract scalar GTR parameter posterior summaries from a CmdStanMCMC RDS file.
 
-    Returns a dict mapping each parameter name to (mean, median, lo95, hi95).
-    Results are saved to a CSV alongside the RDS file and kept after the run.
+    Stan's likelihood is scale-invariant in the GTR rates (multiplying alpha…eta
+    by any positive constant leaves the codon transition matrix unchanged once
+    it is normalised by meanrate). To make Stan comparable to JAX — which fixes
+    eta=1 to identify the rate scale — this routine summarises Stan's GTR rates
+    as the per-draw ratios alpha/eta, beta/eta, gamma/eta, delta/eta,
+    epsilon/eta, computed on each MCMC draw before summarising. The raw eta
+    posterior is also returned (so the plot can show Stan's eta against JAX's
+    fixed eta=1), as is theta.
+
+    Returns a dict keyed by parameter name (alpha, beta, gamma, delta, epsilon
+    are normalised; eta is raw; theta is raw). Each value is a dict with
+    mean/median/lo95/hi95.
     """
     rscript = _find_rscript()
     rds_abs = os.path.abspath(rds_path)
@@ -128,15 +138,28 @@ def load_stan_scalar_params(rds_path: str) -> dict:
         rtmp.write(f"""
 suppressPackageStartupMessages(library(posterior))
 fit  <- readRDS("{rds_abs}")
-drws <- fit$draws()
+df   <- posterior::as_draws_df(fit$draws(variables = c(
+    "alpha[1]", "beta[1]", "gamma[1]", "delta[1]",
+    "epsilon[1]", "eta[1]", "theta"
+)))
+# Per-draw ratios x/eta — Stan's likelihood is invariant under scaling all GTR
+# rates by a constant, so to compare to JAX (which fixes eta=1) we report ratios.
+df$alpha_over_eta   <- df$`alpha[1]`   / df$`eta[1]`
+df$beta_over_eta    <- df$`beta[1]`    / df$`eta[1]`
+df$gamma_over_eta   <- df$`gamma[1]`   / df$`eta[1]`
+df$delta_over_eta   <- df$`delta[1]`   / df$`eta[1]`
+df$epsilon_over_eta <- df$`epsilon[1]` / df$`eta[1]`
+# summarise_draws works directly on a draws_df.
 summ <- posterior::summarise_draws(
-    drws,
+    df,
     mean   = mean,
     median = median,
     lo95   = ~quantile(.x, 0.025)[[1]],
     hi95   = ~quantile(.x, 0.975)[[1]]
 )
-out <- summ[!startsWith(summ$variable, "omega[") & summ$variable != "lp__", c("variable", "mean", "median", "lo95", "hi95")]
+keep <- c("alpha_over_eta", "beta_over_eta", "gamma_over_eta",
+          "delta_over_eta", "epsilon_over_eta", "eta[1]", "theta")
+out <- summ[summ$variable %in% keep, c("variable", "mean", "median", "lo95", "hi95")]
 write.csv(out, "{csv_path}", row.names = FALSE)
 """)
 
@@ -151,12 +174,24 @@ write.csv(out, "{csv_path}", row.names = FALSE)
     finally:
         os.unlink(rtmp_path)
 
-    logging.info("Stan scalar summaries saved to: %s", csv_path)
+    logging.info("Stan scalar summaries (GTR rates as x/eta) saved to: %s", csv_path)
+    # Stan variable name → display name used by the comparison code
+    rename = {
+        "alpha_over_eta":   "alpha",
+        "beta_over_eta":    "beta",
+        "gamma_over_eta":   "gamma",
+        "delta_over_eta":   "delta",
+        "epsilon_over_eta": "epsilon",
+        "eta[1]":           "eta",
+        "theta":            "theta",
+    }
     with open(csv_path, newline="") as f:
         result = {}
         for row in csv.DictReader(f):
-            name = re.sub(r'\[1\]$', '', row["variable"])
-            result[name] = {
+            var = row["variable"]
+            if var not in rename:
+                continue
+            result[rename[var]] = {
                 "mean":   float(row["mean"]),
                 "median": float(row["median"]),
                 "lo95":   float(row["lo95"]),
@@ -200,13 +235,13 @@ def fit_tombombadil(X, pi_eq, n_iter: int = 500, include_invariant: bool = True,
     col_sum = np.sum(X, axis=0)
     mask = np.where(col_max == col_sum, 0, 1)
 
+    # eta is fixed to 1.0 inside make_fn(); it is not sampled.
     base_params = {
         "alpha":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "beta":    jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "gamma":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "delta":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "epsilon": jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "eta":     jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "theta":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
         "omega":   jnp.repeat(
             jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
@@ -215,7 +250,7 @@ def fit_tombombadil(X, pi_eq, n_iter: int = 500, include_invariant: bool = True,
     }
     base_labels = {
         "omega": "vec", "alpha": "scalar", "beta": "scalar", "gamma": "scalar",
-        "delta": "scalar", "epsilon": "scalar", "eta": "scalar", "theta": "scalar",
+        "delta": "scalar", "epsilon": "scalar", "theta": "scalar",
     }
 
     fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
@@ -223,6 +258,8 @@ def fit_tombombadil(X, pi_eq, n_iter: int = 500, include_invariant: bool = True,
     best = all_params[best_idx]
     omega_map = np.array(positive(best["omega"]))
     scalar_params = {p: float(positive(best[p])) for p in _SCALAR_PARAMS}
+    # eta is fixed to 1.0 in JAX (not sampled); expose it for the comparison plot.
+    scalar_params["eta"] = 1.0
     if output is not None:
         save_params(output, best, mask)
     return omega_map, scalar_params
@@ -333,25 +370,42 @@ def plot_per_site_slac_highlighted(omega_map, omega_median_stan, omega_lo_stan, 
 
 
 def plot_params_comparison(jax_params: dict, stan_params: dict):
-    """Forest-plot comparison of scalar GTR parameters: Stan posterior vs. TOMBOMBADIL MAP."""
-    params = [p for p in stan_params if p in jax_params]
+    """Forest-plot comparison of scalar parameters: Stan posterior vs. TOMBOMBADIL MAP.
+
+    Stan's GTR rates (alpha, beta, gamma, delta, epsilon) are reported as the
+    per-draw ratio x/eta, so they are directly comparable to JAX, where eta is
+    fixed to 1. eta itself is shown with Stan's posterior CI versus JAX's
+    fixed value of 1.0 (no CI). theta is on its raw scale in both.
+    """
+    # Order: GTR rates first, then eta (fixed in JAX), then theta.
+    preferred_order = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    params = [p for p in preferred_order if p in stan_params and p in jax_params]
     y = np.arange(len(params))
 
-    fig, ax = plt.subplots(figsize=(7, len(params) * 0.6 + 1))
+    fig, ax = plt.subplots(figsize=(7.5, len(params) * 0.6 + 1.5))
 
     for i, name in enumerate(params):
         s = stan_params[name]
         ax.plot([s["lo95"], s["hi95"]], [i, i], color="steelblue", linewidth=2, zorder=2)
-        ax.scatter(s["median"], i, color="steelblue", s=40, zorder=3, label="Stan posterior median" if i == 0 else None)
-        ax.scatter(jax_params[name], i, color="tomato", s=40, marker="D", zorder=4, label="TOMBOMBADIL MAP" if i == 0 else None)
+        ax.scatter(s["median"], i, color="steelblue", s=40, zorder=3,
+                   label="Stan posterior median (95% CI)" if i == 0 else None)
+        marker = "s" if name == "eta" else "D"
+        label  = "TOMBOMBADIL MAP (eta fixed = 1)" if name == "eta" else (
+                 "TOMBOMBADIL MAP" if i == 0 else None)
+        ax.scatter(jax_params[name], i, color="tomato", s=50, marker=marker, zorder=4,
+                   edgecolors="black", linewidths=0.6, label=label)
 
     ax.set_yticks(y)
     ax.set_yticklabels(params)
+    ax.invert_yaxis()
     ax.set_xscale("log")
     ax.set_xlabel("Parameter value (log scale)")
-    ax.set_title("Scalar GTR parameters: TOMBOMBADIL MAP vs. Stan MCMC")
+    ax.set_title(
+        "Scalar parameters: TOMBOMBADIL MAP vs. Stan MCMC\n"
+        "Stan GTR rates shown as x/eta (per-draw ratio); JAX has eta fixed = 1"
+    )
     ax.axvline(1.0, color="grey", linestyle="--", linewidth=0.8, alpha=0.6)
-    ax.legend(fontsize=8)
+    ax.legend(fontsize=8, loc="best")
     plt.tight_layout()
     return fig
 

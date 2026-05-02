@@ -68,7 +68,7 @@ def model(alpha, beta, gamma, delta, epsilon, eta, mu, omega, pi_eq, log_pi, pim
     #print(pimult)
     #A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix
     #A = build_GTR(1, 1, 1, 1, 1, 1, 1, pimat, pimult) # same as NY98?
-    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix # for building the GTR matrix you want mu=1 (mean mutation rate under neutrality)
+    A = build_GTR(alpha, beta, gamma, delta, epsilon, eta, 1, pimat, pimult) # 61x61 subst rate matrix # for building the GTR matrix you want omega=1 (mean mutation rate under neutrality)
     #print(A) # is all zeros at the moment
     #print(pi_eq)
     #print(jnp.diagonal(A))
@@ -150,29 +150,38 @@ def regression_log_likelihood(raw_x, is_extracellular, regression_mask):
     return jnp.sum(per_site * regression_mask) / jnp.sum(regression_mask)
 
 
-def prior_log_likelihood(raw_x):
+def prior_log_likelihood(raw_x, n_sites):
     """Log prior contributions for MAP regularisation.
 
-    omega:     LogNormal(log(0.5), 1) — prior median 0.5, weakly pulls toward
-               purifying selection. Mean over sites (same scale as per-site likelihood).
-    GTR/theta: Half-normal matching Stan's std_normal() T[0,] — NOT divided by n_sites.
-               These parameters are shared across all sites; only the prior pins their
-               global scale (the likelihood is flat when all rates are scaled together).
+    The data log-likelihood is mean-aggregated over sites (mean(losses)), which
+    is (1/n_sites) × Σᵢ log P(Dᵢ | θ). For the MAP to coincide with the mode of
+    the true Bayesian posterior Σᵢ log P(Dᵢ | θ) + log P(θ), every prior term
+    must enter with the same 1/n_sites weighting.
+
+    omega:     LogNormal(log(0.5), 1) — per-site prior. jnp.mean over sites is
+               already the correct (1/n_sites)-weighted form for the mean-loss.
+    GTR rates: Half-normal matching Stan's std_normal() T[0,]. These are global
+               (one prior per parameter, not per site), so we explicitly divide
+               the summed log-prior by n_sites to put it at the same effective
+               weight as one per-site quantity. Without this division the prior
+               is n_sites times too strong relative to the data, which over-
+               shrinks weakly-identified rates toward 0.
+               eta is fixed to 1.0 (not sampled) to remove the global GTR-scale
+               ambiguity, so it is excluded from the prior.
+    theta:     Half-normal, same form as the GTR rates but NOT divided by n_sites.
+               theta is a global mutation rate scalar that scales the overall branch
+               length; its prior is intentionally kept at full strength.
     """
 
     omega = positive(raw_x["omega"])
     omega_prior = jnp.mean(jax.scipy.stats.norm.logpdf(jnp.log(omega), jnp.log(0.5), 1.0))
 
-    # Half-normal prior matching Stan's std_normal() T[0,]: evaluate N(0,1) at the
-    # natural-scale parameter (which is always positive, so always in the valid domain).
-    # NOT divided by n_sites: GTR/theta parameters are shared across all sites, so their
-    # prior must contribute at full weight to break the scale non-identifiability
-    # (multiplying all rates by k leaves the likelihood unchanged, only the prior pins the scale).
-    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon"]
     gtr_prior = jnp.sum(jnp.array([jax.scipy.stats.norm.logpdf(positive(raw_x[k]), 0.0, 1.0)
                                     for k in gtr_keys]))
+    theta_prior = jax.scipy.stats.norm.logpdf(positive(raw_x["theta"]), 0.0, 1.0)
 
-    return omega_prior + gtr_prior
+    return omega_prior + gtr_prior / n_sites + theta_prior
 
 
 def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None, regression_mask=None, regression_weight=0.1, include_invariant=True): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
@@ -202,14 +211,16 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=No
         )
 
 
-        losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], x["eta"], x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
+        # eta is fixed to 1.0 (no longer sampled) to identify the global GTR rate scale.
+        eta_fixed = jnp.array(1.0, dtype=jnp.float64)
+        losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], eta_fixed, x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
         #print('losses: ',losses)
         if include_invariant:
             total = jnp.mean(losses)
         else:
             mask_f = mask.astype(jnp.float64)
             total = jnp.sum(losses * mask_f) / jnp.maximum(jnp.sum(mask_f), 1.0)
-        total = total + prior_log_likelihood(raw_x)
+        total = total + prior_log_likelihood(raw_x, X.shape[1])
         if is_extracellular is not None:
             # regression_weight controls how strongly the regression term influences omega
             # relative to the data likelihood. Values < 1 prevent the regression from
@@ -230,7 +241,7 @@ def _optimize_params(fn, params, solver, n_iter, verbose=True):
         if verbose:
             print('parameters: ', jax.tree.map(positive, jnp.array([
                 params["alpha"], params["beta"], params["gamma"],
-                params["delta"], params["epsilon"], params["eta"], params["theta"]
+                params["delta"], params["epsilon"], params["theta"]
             ])))
             print('omegas: ', jax.tree.map(positive, params["omega"]))
     return params
@@ -433,7 +444,7 @@ def compute_laplace_se(fn, params):
 
 def _print_laplace_summary(params, se_natural):
     """Print a human-readable summary of MAP estimates ± 1 SE (natural scale)."""
-    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "theta"]
     print("\n--- Laplace approximation (diagonal) ---")
     print("GTR / shared parameters (natural scale):")
     for k in gtr_keys:
@@ -477,7 +488,7 @@ def save_params(output_stem: str, params: dict, mask: np.ndarray) -> None:
             w.writerow([i, float(om), int(mk)])
     logging.info("Saved omega estimates to: %s", omega_path)
 
-    scalar_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    scalar_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "theta"]
     rows = [(k, float(positive(params[k]))) for k in scalar_keys if k in params]
     if "alpha_reg" in params:
         rows += [
@@ -553,7 +564,7 @@ def plot_replicates(all_params_list, best_idx):
     all_omegas = [np.array(positive(p["omega"])) for p in all_params_list]
     n_sites = len(all_omegas[0])
     sites = np.arange(n_sites)
-    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+    gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "theta"]
     cmap = plt.cm.tab10
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 8))
@@ -767,19 +778,20 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
     logging.info("Compiling model...")
 
     # Base params and labels shared by both runs
+    # eta is fixed to 1.0 inside make_fn(); it is intentionally not part of the
+    # sampled parameter set so the global GTR rate scale is identified.
     base_params = {
         "alpha":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "beta":    jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "gamma":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "delta":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "epsilon": jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "eta":     jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "theta":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
         "omega":   jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float64), jnp.size(X, axis=1)),
     }
     base_labels = {
         "omega": "vec", "alpha": "scalar", "beta": "scalar", "gamma": "scalar",
-        "delta": "scalar", "epsilon": "scalar", "eta": "scalar", "theta": "scalar",
+        "delta": "scalar", "epsilon": "scalar", "theta": "scalar",
     }
 
     if only_colour_domains and is_extracellular is not None:
@@ -841,7 +853,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         print('Final likelihood: ', fn_domain(params))
         print('final parameters: ', jax.tree.map(positive, jnp.array([
             params["alpha"], params["beta"], params["gamma"],
-            params["delta"], params["epsilon"], params["eta"], params["theta"]
+            params["delta"], params["epsilon"], params["theta"]
         ])))
         print('final omega: ', omega_domain)
         print('final alpha_reg: ', params["alpha_reg"])
@@ -878,7 +890,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         print('Final likelihood: ', fn(params))
         print('final parameters: ', jax.tree.map(positive, jnp.array([
             params["alpha"], params["beta"], params["gamma"],
-            params["delta"], params["epsilon"], params["eta"], params["theta"]
+            params["delta"], params["epsilon"], params["theta"]
         ])))
         print('final omega: ', jax.tree.map(positive, params["omega"]))
         print('Objective function: ', loss_fn(params))
