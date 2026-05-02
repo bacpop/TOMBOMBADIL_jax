@@ -697,7 +697,7 @@ def plot_omega_by_domain(params, is_extracellular, is_imputed, regression_mask,
     return fig, ax
 
 
-def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
+def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 is_extracellular=None, is_imputed=None, regression_mask=None,
                 regression_weight=0.1, only_colour_domains=False,
                 estimate_uncertainty=False, fit_replicates=1,
@@ -798,7 +798,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         # Run standard model (no regression), then show domain-coloured plot
         logging.info(f"Running optimization (no regression, domain colours only) — {fit_replicates} replicate(s)...")
         fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
-        all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates)
+        all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates, n_iter=samples)
         params = all_params[best_idx]
 
         if fit_replicates > 1:
@@ -823,7 +823,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         # --- Baseline run (single, silent — used only for the comparison plot) ---
         logging.info("Running baseline optimization (no domain regression)...")
         fn_baseline = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
-        baseline_all, baseline_best = _run_replicates(fn_baseline, base_params, base_labels, 1)
+        baseline_all, baseline_best = _run_replicates(fn_baseline, base_params, base_labels, 1, n_iter=samples)
         params_baseline = baseline_all[baseline_best]
         omega_baseline = positive(params_baseline["omega"])
         if estimate_uncertainty:
@@ -845,7 +845,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         fn_domain = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
                             is_extracellular, regression_mask, regression_weight,
                             include_invariant=include_invariant)
-        all_domain_params, best_idx = _run_replicates(fn_domain, domain_params, domain_labels, fit_replicates)
+        all_domain_params, best_idx = _run_replicates(fn_domain, domain_params, domain_labels, fit_replicates, n_iter=samples)
         params = all_domain_params[best_idx]
         omega_domain = positive(params["omega"])
 
@@ -883,7 +883,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
         # Run without domain regression
         logging.info(f"Running optimization — {fit_replicates} replicate(s)...")
         fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
-        all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates)
+        all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates, n_iter=samples)
         params = all_params[best_idx]
 
         loss_fn = lambda p: -fn(p)
@@ -903,7 +903,7 @@ def run_sampler(X, pi_eq, warmup=500, samples=500, platform='cpu', threads=8,
 
         if output is not None:
             save_params(output, params, mask)
-        plt.plot(np.array(positive(params["omega"])), 'o', color='black')
-        plt.show()
+        #plt.plot(np.array(positive(params["omega"])), 'o', color='black')
+        #plt.show()
 
 
