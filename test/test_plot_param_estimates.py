@@ -2,65 +2,33 @@ import os
 import tempfile
 import unittest
 
-import numpy as np
-
-from plot_param_estimates import _resolve_alignment_path, load_domain_annotations
+from plot_param_estimates import find_scalar_csvs, load_scalar_csv
 
 
-class TestFolderDomainAnnotations(unittest.TestCase):
-    def test_matches_uniref_stem_to_stripped_multifasta_record(self):
+class TestScalarParamPlots(unittest.TestCase):
+    def test_load_scalar_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
-            alignment_dir = os.path.join(tmp, "alignments")
-            os.mkdir(alignment_dir)
+            scalar_path = os.path.join(tmp, "fit_scalar.csv")
+            with open(scalar_path, "w") as f:
+                f.write("variable,value\nalpha,1.0\nomega,0.5\n")
 
-            alignment_path = os.path.join(
-                alignment_dir, "UniRef90_xyz_codon_aligned.fasta"
-            )
-            with open(alignment_path, "w") as f:
-                f.write(">seq1\nATGAAAACC\n")
+            params = load_scalar_csv(scalar_path)
 
-            reference_path = os.path.join(tmp, "references.fasta")
-            with open(reference_path, "w") as f:
-                f.write(">abc\nMMMM\n>xyz\nMKT\n")
+        self.assertEqual(params["alpha"], 1.0)
+        self.assertEqual(params["omega"], 0.5)
 
-            annotation_path = os.path.join(tmp, "domains.txt")
-            with open(annotation_path, "w") as f:
-                f.write(">abc\nLLLL\n>xyz\nOIp\n")
-
-            resolved = _resolve_alignment_path(alignment_dir, "UniRef90_xyz")
-            self.assertEqual(resolved, alignment_path)
-
-            annotations = load_domain_annotations(
-                annotation_path,
-                3,
-                alignment_path=resolved,
-                reference_path=reference_path,
-                record_key="UniRef90_xyz",
-            )
-
-        np.testing.assert_array_equal(
-            annotations, np.array(["O", "I", "p"], dtype=object)
-        )
-
-    def test_alignment_folder_can_match_stripped_name(self):
+    def test_find_scalar_csvs(self):
         with tempfile.TemporaryDirectory() as tmp:
-            alignment_path = os.path.join(tmp, "xyz.aln")
-            with open(alignment_path, "w") as f:
-                f.write(">seq1\nATGAAAACC\n")
+            scalar_path = os.path.join(tmp, "fit_scalar.csv")
+            other_path = os.path.join(tmp, "notes.txt")
+            with open(scalar_path, "w") as f:
+                f.write("variable,value\nomega,0.5\n")
+            with open(other_path, "w") as f:
+                f.write("not a scalar output\n")
 
-            resolved = _resolve_alignment_path(tmp, "UniRef90_xyz")
+            paths = find_scalar_csvs(tmp)
 
-        self.assertEqual(resolved, alignment_path)
-
-    def test_alignment_folder_can_match_stripped_name_with_codon_aligned_suffix(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            alignment_path = os.path.join(tmp, "xyz_codon_aligned.fasta")
-            with open(alignment_path, "w") as f:
-                f.write(">seq1\nATGAAAACC\n")
-
-            resolved = _resolve_alignment_path(tmp, "UniRef90_xyz")
-
-        self.assertEqual(resolved, alignment_path)
+        self.assertEqual(paths, [scalar_path])
 
 
 if __name__ == "__main__":
