@@ -3,11 +3,9 @@
 import logging
 import gzip
 import numpy as np
-import jax.numpy as jnp
 
 from .__init__ import __version__
 from .sample import run_sampler
-from .domains import parse_domain_json
 
 # expected order
 # "TTT","TTC","TTA","TTG","TCT","TCC","TCA","TCG","TAT","TAC","TGT","TGC"
@@ -50,16 +48,6 @@ def get_options():
     mGroup = parser.add_argument_group('Model options')
     mGroup.add_argument('--pi', type=str, default=None,
                         help='Pi equilibrium vector (default all equal)')
-    mGroup.add_argument('--domains', type=str, default=None,
-                        help='UniProt JSON file with domain annotations for hierarchical regression on omega')
-    mGroup.add_argument('--reference', type=str, default=None,
-                        help='Reference protein FASTA for mapping domain positions to alignment columns (required with --domains)')
-    mGroup.add_argument('--regression-weight', type=float, default=0.1,
-                        help='Weight of the domain regression term relative to the data likelihood (default 0.1). '
-                             'Decrease to reduce influence on strong selection signals.')
-    mGroup.add_argument('--only-colour-domains', action='store_true', default=False,
-                        help='Run the standard model (no regression) and produce a plot coloured by domain annotation. '
-                             'Requires --domains and --reference.')
     mGroup.add_argument('--estimate-uncertainty', action='store_true', default=False,
                         help='Compute per-parameter standard errors via diagonal Laplace approximation '
                              '(Hessian-based). Can be memory-intensive for large alignments.')
@@ -68,12 +56,10 @@ def get_options():
                              'and produce a convergence plot. Best replicate (highest log-likelihood) is used '
                              'for all downstream outputs (default: 1).')
     mGroup.add_argument('--exclude-invariant', action='store_true', default=False,
-                        help='Exclude invariant sites from the GTR/theta loss and stop omega gradients '
-                             'at those sites. By default invariant sites are included and the prior '
-                             'regularises their omega estimates.')
+                        help='Exclude invariant sites from the mean data likelihood. By default invariant '
+                             'sites are included.')
     mGroup.add_argument('--output-jax', type=str, default=None, metavar='STEM',
-                        help='Save MAP estimates to CSV. Writes STEM_omega.csv (per-site omega) and '
-                             'STEM_scalar.csv (GTR/regression parameters). Default: do not save.')
+                        help='Save MAP estimates to STEM_scalar.csv. Default: do not save.')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
@@ -166,20 +152,7 @@ def main():
     if options.pi is None:
         pi = np.array([1/61 for i in range(61)])
 
-    is_extracellular = None
-    is_imputed = None
-    regression_mask = None
-    if options.domains is not None:
-        if options.reference is None:
-            raise ValueError("--reference is required when --domains is specified")
-        logging.info("Parsing domain annotations...")
-        is_extracellular, is_imputed, regression_mask = parse_domain_json(
-            options.domains, options.alignment, options.reference, X.shape[1]
-        )
-
     run_sampler(X, pi, options.sample_it, options.platform, options.cpus,
-                is_extracellular, is_imputed, regression_mask, options.regression_weight,
-                only_colour_domains=options.only_colour_domains,
                 estimate_uncertainty=options.estimate_uncertainty,
                 fit_replicates=options.fit_replicates,
                 include_invariant=not options.exclude_invariant,
