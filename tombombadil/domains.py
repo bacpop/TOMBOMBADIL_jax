@@ -63,7 +63,14 @@ def build_alignment_to_protein_map(alignment_path, reference_protein_path):
                             is an insertion relative to the reference
     """
     _, ref_protein = _read_protein_fasta(reference_protein_path)
-    ref_len = len(ref_protein)
+    return build_alignment_to_protein_map_for_length(alignment_path, len(ref_protein))
+
+
+def build_alignment_to_protein_map_for_length(alignment_path, reference_protein_length):
+    """Build an alignment-to-protein map using a known reference protein length."""
+    ref_len = int(reference_protein_length)
+    if ref_len <= 0:
+        raise ValueError("Reference protein length must be positive")
 
     sequences = _read_dna_alignment(alignment_path)
     if not sequences:
