@@ -5,6 +5,7 @@ import gzip
 import numpy as np
 
 from .__init__ import __version__
+from .sample import evaluate_fixed_params
 from .sample import run_sampler
 
 # expected order
@@ -60,6 +61,42 @@ def get_options():
                              'sites are included.')
     mGroup.add_argument('--output-jax', type=str, default=None, metavar='STEM',
                         help='Save MAP estimates to STEM_scalar.csv. Default: do not save.')
+    mGroup.add_argument('--objective-aggregate', choices=['mean', 'sum'], default='mean',
+                        help='Aggregate site log-likelihoods by mean or sum (default: mean).')
+    mGroup.add_argument('--prior-mode',
+                        choices=['current', 'none', 'stan_constrained', 'stan_unconstrained'],
+                        default='current',
+                        help='Prior/Jacobian convention for optimisation (default: current).')
+    mGroup.add_argument('--estimate-eta', action='store_true', default=False,
+                        help='Estimate eta instead of fixing eta to 1.0.')
+    mGroup.add_argument('--disable-eigen-jitter', action='store_true', default=False,
+                        help='Disable the 1e-6 diagonal jitter before eigendecomposition.')
+    mGroup.add_argument('--disable-omega-floor', action='store_true', default=False,
+                        help='Disable the omega <= 0.01 gradient stop used by the default optimiser.')
+
+    dGroup = parser.add_argument_group('Diagnostic fixed-parameter scoring')
+    dGroup.add_argument('--diagnostic-fixed-params', action='store_true', default=False,
+                        help='Evaluate the scalar-GTR objective at fixed natural-scale parameters and exit.')
+    dGroup.add_argument('--diagnostic-alpha', type=float, default=1.0)
+    dGroup.add_argument('--diagnostic-beta', type=float, default=1.0)
+    dGroup.add_argument('--diagnostic-gamma', type=float, default=1.0)
+    dGroup.add_argument('--diagnostic-delta', type=float, default=1.0)
+    dGroup.add_argument('--diagnostic-epsilon', type=float, default=1.0)
+    dGroup.add_argument('--diagnostic-eta', type=float, default=1.0)
+    dGroup.add_argument('--diagnostic-theta', type=float, default=0.5)
+    dGroup.add_argument('--diagnostic-omega', type=float, default=0.5)
+    dGroup.add_argument('--diagnostic-prior-mode',
+                        choices=['none', 'current', 'stan_constrained', 'stan_unconstrained'],
+                        default='none',
+                        help='Prior/Jacobian convention for fixed scoring (default: none).')
+    dGroup.add_argument('--diagnostic-aggregate', choices=['sum', 'mean'], default='sum',
+                        help='Aggregate site log-likelihoods for fixed scoring (default: sum).')
+    dGroup.add_argument('--diagnostic-fix-eta', action='store_true', default=False,
+                        help='Score with eta fixed to 1.0 instead of using --diagnostic-eta.')
+    dGroup.add_argument('--diagnostic-enable-jitter', action='store_true', default=False,
+                        help='Enable the JAX eigen jitter while fixed scoring (default: disabled).')
+    dGroup.add_argument('--diagnostic-enable-omega-floor', action='store_true', default=False,
+                        help='Enable the JAX omega gradient floor while fixed scoring (default: disabled).')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
@@ -152,11 +189,39 @@ def main():
     if options.pi is None:
         pi = np.array([1/61 for i in range(61)])
 
+    if options.diagnostic_fixed_params:
+        diagnostic_params = {
+            "alpha": options.diagnostic_alpha,
+            "beta": options.diagnostic_beta,
+            "gamma": options.diagnostic_gamma,
+            "delta": options.diagnostic_delta,
+            "epsilon": options.diagnostic_epsilon,
+            "eta": options.diagnostic_eta,
+            "theta": options.diagnostic_theta,
+            "omega": options.diagnostic_omega,
+        }
+        value = evaluate_fixed_params(
+            X, pi, diagnostic_params,
+            include_invariant=not options.exclude_invariant,
+            aggregate=options.diagnostic_aggregate,
+            prior_mode=options.diagnostic_prior_mode,
+            estimate_eta=not options.diagnostic_fix_eta,
+            eigen_jitter=options.diagnostic_enable_jitter,
+            omega_floor=options.diagnostic_enable_omega_floor,
+        )
+        print(f"Diagnostic scalar-GTR objective: {value:.10f}")
+        return
+
     run_sampler(X, pi, options.sample_it, options.platform, options.cpus,
                 estimate_uncertainty=options.estimate_uncertainty,
                 fit_replicates=options.fit_replicates,
                 include_invariant=not options.exclude_invariant,
-                output=options.output_jax)
+                output=options.output_jax,
+                aggregate=options.objective_aggregate,
+                prior_mode=options.prior_mode,
+                estimate_eta=options.estimate_eta,
+                eigen_jitter=not options.disable_eigen_jitter,
+                omega_floor=not options.disable_omega_floor)
 
 if __name__ == "__main__":
     main()
