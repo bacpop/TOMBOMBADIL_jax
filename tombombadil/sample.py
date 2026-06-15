@@ -454,8 +454,8 @@ def plot_replicates(all_params_list, best_idx):
 
 def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 estimate_uncertainty=False, fit_replicates=1,
-                include_invariant=True, output=None, aggregate="mean",
-                prior_mode="current", estimate_eta=False,
+                include_invariant=True, output=None, aggregate="sum",
+                prior_mode="stan_unconstrained", estimate_eta=True,
                 eigen_jitter=True, omega_floor=True):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment

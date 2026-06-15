@@ -57,22 +57,18 @@ def get_options():
                              'and produce a convergence plot. Best replicate (highest log-likelihood) is used '
                              'for all downstream outputs (default: 1).')
     mGroup.add_argument('--exclude-invariant', action='store_true', default=False,
-                        help='Exclude invariant sites from the mean data likelihood. By default invariant '
+                        help='Exclude invariant sites from the data likelihood. By default invariant '
                              'sites are included.')
     mGroup.add_argument('--output-jax', type=str, default=None, metavar='STEM',
                         help='Save MAP estimates to STEM_scalar.csv. Default: do not save.')
-    mGroup.add_argument('--objective-aggregate', choices=['mean', 'sum'], default='mean',
-                        help='Aggregate site log-likelihoods by mean or sum (default: mean).')
+    mGroup.add_argument('--objective-aggregate', choices=['mean', 'sum'], default='sum',
+                        help='Aggregate site log-likelihoods by mean or sum (default: sum).')
     mGroup.add_argument('--prior-mode',
                         choices=['current', 'none', 'stan_constrained', 'stan_unconstrained'],
-                        default='current',
-                        help='Prior/Jacobian convention for optimisation (default: current).')
-    mGroup.add_argument('--estimate-eta', action='store_true', default=False,
-                        help='Estimate eta instead of fixing eta to 1.0.')
-    mGroup.add_argument('--disable-eigen-jitter', action='store_true', default=False,
-                        help='Disable the 1e-6 diagonal jitter before eigendecomposition.')
-    mGroup.add_argument('--disable-omega-floor', action='store_true', default=False,
-                        help='Disable the omega <= 0.01 gradient stop used by the default optimiser.')
+                        default='stan_unconstrained',
+                        help='Prior/Jacobian convention for optimisation (default: stan_unconstrained).')
+    mGroup.add_argument('--fix-eta', action='store_true', default=False,
+                        help='Fix eta to 1.0 instead of estimating it.')
 
     dGroup = parser.add_argument_group('Diagnostic fixed-parameter scoring')
     dGroup.add_argument('--diagnostic-fixed-params', action='store_true', default=False,
@@ -219,9 +215,7 @@ def main():
                 output=options.output_jax,
                 aggregate=options.objective_aggregate,
                 prior_mode=options.prior_mode,
-                estimate_eta=options.estimate_eta,
-                eigen_jitter=not options.disable_eigen_jitter,
-                omega_floor=not options.disable_omega_floor)
+                estimate_eta=not options.fix_eta)
 
 if __name__ == "__main__":
     main()
