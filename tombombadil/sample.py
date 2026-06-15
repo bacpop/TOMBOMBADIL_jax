@@ -280,21 +280,60 @@ def evaluate_fixed_params(X, pi_eq, natural_params, include_invariant=True,
     return float(fn(raw_params))
 
 
-def _optimize_params(fn, params, solver, n_iter, verbose=True):
-    """Run the optimization loop and return final params."""
+def _optimize_params(fn, params, solver, n_iter, verbose=True, convergence=None):
+    """Run the optimization loop and return final params plus convergence metadata."""
     loss_fn = lambda p: -fn(p)
     opt_state = solver.init(params)
-    for _ in range(n_iter):
+    use_convergence = convergence is not None and convergence.get("enabled", False)
+    check_every = max(int(convergence.get("check_every", 1)), 1) if use_convergence else 1
+    patience = max(int(convergence.get("patience", 1)), 1) if use_convergence else 1
+    min_steps = max(int(convergence.get("min_steps", 0)), 0) if use_convergence else 0
+    tol = float(convergence.get("tol", 0.0)) if use_convergence else 0.0
+
+    best_params = params
+    best_objective = float(fn(params)) if use_convergence else None
+    stale_checks = 0
+    converged = False
+    steps_run = 0
+
+    for step in range(1, n_iter + 1):
         grad = jax.grad(loss_fn)(params)
         updates, opt_state = solver.update(grad, opt_state, params)
         params = optax.apply_updates(params, updates)
+        steps_run = step
         if verbose:
             print('parameters: ', jax.tree.map(positive, jnp.array([
                 params["alpha"], params["beta"], params["gamma"],
                 params["delta"], params["epsilon"], params["theta"]
             ])))
             print('omegas: ', jax.tree.map(positive, params["omega"]))
-    return params
+
+        if use_convergence and step % check_every == 0:
+            current_objective = float(fn(params))
+            improvement = current_objective - best_objective
+            if current_objective > best_objective:
+                best_objective = current_objective
+                best_params = params
+
+            if step >= min_steps:
+                if improvement <= tol:
+                    stale_checks += 1
+                else:
+                    stale_checks = 0
+                if stale_checks >= patience:
+                    converged = True
+                    break
+
+    if not use_convergence:
+        best_params = params
+        best_objective = float(fn(params))
+
+    return {
+        "params": best_params,
+        "n_steps": steps_run,
+        "objective": best_objective,
+        "converged": converged,
+    }
 
 
 def compute_laplace_se(fn, params):
@@ -383,7 +422,7 @@ def _perturb_params(params, scale=0.5):
     return unflatten(flat + noise)
 
 
-def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100):
+def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100, convergence=None):
     """Run the optimizer n_reps times and return all results plus the index of the best.
 
     Replicate 0 uses the unperturbed starting point; subsequent replicates add
@@ -397,11 +436,13 @@ def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100):
         n_iter:        optimisation iterations per replicate
 
     Returns:
-        all_params: list of param dicts, one per replicate
-        best_idx:   index of the replicate with the highest log-likelihood
+        all_params:   list of param dicts, one per replicate
+        best_idx:     index of the replicate with the highest log-likelihood
+        all_metadata: optimizer metadata dicts, one per replicate
     """
     all_params = []
     all_lls = []
+    all_metadata = []
     for rep in range(n_reps):
         start = dict(start_params) if rep == 0 else _perturb_params(start_params)
         schedule = optax.cosine_decay_schedule(
@@ -411,14 +452,20 @@ def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100):
             {"vec": optax.adam(schedule), "scalar": optax.adam(schedule)},
             param_labels=param_labels,
         )
-        params_rep = _optimize_params(fn, start, solver, n_iter, verbose=False)
-        ll = float(fn(params_rep))
+        result = _optimize_params(fn, start, solver, n_iter, verbose=False, convergence=convergence)
+        params_rep = result["params"]
+        ll = result["objective"]
         all_params.append(params_rep)
         all_lls.append(ll)
-        logging.info(f"  Replicate {rep + 1}/{n_reps}: log-likelihood = {ll:.4f}")
+        all_metadata.append(result)
+        status = "converged" if result["converged"] else "max steps"
+        logging.info(
+            f"  Replicate {rep + 1}/{n_reps}: log-likelihood = {ll:.4f}; "
+            f"steps = {result['n_steps']}; status = {status}"
+        )
     best_idx = int(np.argmax(all_lls))
     logging.info(f"Best replicate: {best_idx + 1} (log-likelihood = {all_lls[best_idx]:.4f})")
-    return all_params, best_idx
+    return all_params, best_idx, all_metadata
 
 
 def plot_replicates(all_params_list, best_idx):
@@ -456,7 +503,10 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 estimate_uncertainty=False, fit_replicates=1,
                 include_invariant=True, output=None, aggregate="sum",
                 prior_mode="stan_unconstrained", estimate_eta=True,
-                eigen_jitter=True, omega_floor=True):
+                eigen_jitter=True, omega_floor=True,
+                fit_until_convergence=False, convergence_tol=1e-6,
+                convergence_patience=5, convergence_check_every=10,
+                convergence_min_steps=50):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -552,6 +602,15 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         base_labels["eta"] = "scalar"
 
     logging.info(f"Running optimization — {fit_replicates} replicate(s)...")
+    convergence = None
+    if fit_until_convergence:
+        convergence = {
+            "enabled": True,
+            "tol": convergence_tol,
+            "patience": convergence_patience,
+            "check_every": convergence_check_every,
+            "min_steps": convergence_min_steps,
+        }
     fn = make_fn(
         pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
         include_invariant=include_invariant,
@@ -561,8 +620,12 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         eigen_jitter=eigen_jitter,
         omega_floor=omega_floor,
     )
-    all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates, n_iter=samples)
+    all_params, best_idx, all_metadata = _run_replicates(
+        fn, base_params, base_labels, fit_replicates, n_iter=samples,
+        convergence=convergence,
+    )
     params = all_params[best_idx]
+    best_metadata = all_metadata[best_idx]
 
     loss_fn = lambda p: -fn(p)
     print('Final likelihood: ', fn(params))
@@ -572,6 +635,8 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
     ])))
     if estimate_eta:
         print('final eta: ', positive(params["eta"]))
+    status = "converged" if best_metadata["converged"] else "reached max steps"
+    print(f"Optimization status: {status} after {best_metadata['n_steps']} step(s)")
     print('Objective function: ', loss_fn(params))
     if fit_replicates > 1:
         plot_replicates(all_params, best_idx)

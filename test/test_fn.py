@@ -6,9 +6,11 @@ import unittest # for performing unit tests
 from unittest import mock
 import numpy as np
 import jax.numpy as jnp
+import optax
 
 from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
+from tombombadil.sample import _optimize_params
 from tombombadil.sample import evaluate_fixed_params
 from tombombadil.sample import save_params
 from tombombadil.sample import transforms
@@ -207,6 +209,11 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(args.objective_aggregate, "sum")
         self.assertEqual(args.prior_mode, "stan_unconstrained")
         self.assertFalse(args.fix_eta)
+        self.assertFalse(args.fit_until_convergence)
+        self.assertEqual(args.convergence_tol, 1e-6)
+        self.assertEqual(args.convergence_patience, 5)
+        self.assertEqual(args.convergence_check_every, 10)
+        self.assertEqual(args.convergence_min_steps, 50)
 
     def test_fix_eta_flag_disables_eta_estimation(self):
         argv = ["tombombadil", "--alignment", "porB3.carriage.noindels.txt", "--fix-eta"]
@@ -214,6 +221,65 @@ class TestCliDefaults(unittest.TestCase):
             args = get_options()
 
         self.assertTrue(args.fix_eta)
+
+    def test_convergence_flags_parse(self):
+        argv = [
+            "tombombadil",
+            "--alignment",
+            "porB3.carriage.noindels.txt",
+            "--fit-until-convergence",
+            "--convergence-tol",
+            "0.001",
+            "--convergence-patience",
+            "3",
+            "--convergence-check-every",
+            "2",
+            "--convergence-min-steps",
+            "4",
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            args = get_options()
+
+        self.assertTrue(args.fit_until_convergence)
+        self.assertEqual(args.convergence_tol, 0.001)
+        self.assertEqual(args.convergence_patience, 3)
+        self.assertEqual(args.convergence_check_every, 2)
+        self.assertEqual(args.convergence_min_steps, 4)
+
+
+class TestOptimizerConvergence(unittest.TestCase):
+    def test_convergence_stops_before_max_steps(self):
+        params = {"x": jnp.array(0.0, dtype=jnp.float64)}
+        solver = optax.sgd(0.0)
+        fn = lambda p: p["x"] * 0.0
+
+        result = _optimize_params(
+            fn,
+            params,
+            solver,
+            n_iter=20,
+            verbose=False,
+            convergence={
+                "enabled": True,
+                "tol": 0.0,
+                "patience": 2,
+                "check_every": 1,
+                "min_steps": 2,
+            },
+        )
+
+        self.assertTrue(result["converged"])
+        self.assertLess(result["n_steps"], 20)
+
+    def test_fixed_step_mode_runs_requested_steps(self):
+        params = {"x": jnp.array(0.0, dtype=jnp.float64)}
+        solver = optax.sgd(0.0)
+        fn = lambda p: p["x"] * 0.0
+
+        result = _optimize_params(fn, params, solver, n_iter=5, verbose=False)
+
+        self.assertFalse(result["converged"])
+        self.assertEqual(result["n_steps"], 5)
 
 
 if __name__ == '__main__':

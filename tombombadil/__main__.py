@@ -69,6 +69,16 @@ def get_options():
                         help='Prior/Jacobian convention for optimisation (default: stan_unconstrained).')
     mGroup.add_argument('--fix-eta', action='store_true', default=False,
                         help='Fix eta to 1.0 instead of estimating it.')
+    mGroup.add_argument('--fit-until-convergence', action='store_true', default=False,
+                        help='Stop optimisation early when the objective stops improving.')
+    mGroup.add_argument('--convergence-tol', type=float, default=1e-6,
+                        help='Minimum objective improvement counted as progress (default: 1e-6).')
+    mGroup.add_argument('--convergence-patience', type=int, default=5,
+                        help='Number of convergence checks without progress before stopping (default: 5).')
+    mGroup.add_argument('--convergence-check-every', type=int, default=10,
+                        help='Check convergence every N optimiser steps (default: 10).')
+    mGroup.add_argument('--convergence-min-steps', type=int, default=50,
+                        help='Minimum optimiser steps before convergence can stop fitting (default: 50).')
 
     dGroup = parser.add_argument_group('Diagnostic fixed-parameter scoring')
     dGroup.add_argument('--diagnostic-fixed-params', action='store_true', default=False,
@@ -215,7 +225,12 @@ def main():
                 output=options.output_jax,
                 aggregate=options.objective_aggregate,
                 prior_mode=options.prior_mode,
-                estimate_eta=not options.fix_eta)
+                estimate_eta=not options.fix_eta,
+                fit_until_convergence=options.fit_until_convergence,
+                convergence_tol=options.convergence_tol,
+                convergence_patience=options.convergence_patience,
+                convergence_check_every=options.convergence_check_every,
+                convergence_min_steps=options.convergence_min_steps)
 
 if __name__ == "__main__":
     main()
