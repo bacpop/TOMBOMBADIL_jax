@@ -13,6 +13,10 @@ Original implementation in Stan https://github.com/bacpop/TOMBOMBADIL
 Work is based on Genomegamap https://doi.org/10.1093/molbev/msaa069
 
 # Fitting dN/dS model to data   
+Create codon-based multiple sequence alignments
+
+install Python 3.14.0
+
 run using  
 
 python -m tombombadil --alignment alignment.fas.aln --fit-replicates 4 --fit-until-convergence
