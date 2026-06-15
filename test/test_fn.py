@@ -1,10 +1,13 @@
 import csv
 import os
+import sys
 import tempfile
 import unittest # for performing unit tests
+from unittest import mock
 import numpy as np
 import jax.numpy as jnp
 
+from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
 from tombombadil.sample import evaluate_fixed_params
 from tombombadil.sample import save_params
@@ -193,6 +196,24 @@ class TestDiagnosticObjective(unittest.TestCase):
         )
 
         self.assertAlmostEqual(eta_one, eta_two, places=6)
+
+
+class TestCliDefaults(unittest.TestCase):
+    def test_fitting_defaults_are_stan_unconstrained_with_eta(self):
+        argv = ["tombombadil", "--alignment", "porB3.carriage.noindels.txt"]
+        with mock.patch.object(sys, "argv", argv):
+            args = get_options()
+
+        self.assertEqual(args.objective_aggregate, "sum")
+        self.assertEqual(args.prior_mode, "stan_unconstrained")
+        self.assertFalse(args.fix_eta)
+
+    def test_fix_eta_flag_disables_eta_estimation(self):
+        argv = ["tombombadil", "--alignment", "porB3.carriage.noindels.txt", "--fix-eta"]
+        with mock.patch.object(sys, "argv", argv):
+            args = get_options()
+
+        self.assertTrue(args.fix_eta)
 
 
 if __name__ == '__main__':
