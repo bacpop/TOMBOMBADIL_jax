@@ -6,6 +6,7 @@ import numpy as np
 import jax.numpy as jnp
 
 from tombombadil.sample import make_fn
+from tombombadil.sample import evaluate_fixed_params
 from tombombadil.sample import save_params
 from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
@@ -134,6 +135,64 @@ class TestScalarOmegaOutput(unittest.TestCase):
 
         self.assertIn("omega", rows)
         self.assertAlmostEqual(rows["omega"], 0.5, places=6)
+
+
+class TestDiagnosticObjective(unittest.TestCase):
+    def test_fixed_param_sum_is_site_count_times_mean_without_priors(self):
+        X = np.zeros((61, 2))
+        X[15, :] = 4
+        X[47, :] = 19
+        pi_test = np.array([1 / 61 for i in range(61)])
+        params = {
+            "alpha": 1.0,
+            "beta": 1.0,
+            "gamma": 1.0,
+            "delta": 1.0,
+            "epsilon": 1.0,
+            "eta": 1.0,
+            "theta": 0.5,
+            "omega": 0.5,
+        }
+
+        mean_value = evaluate_fixed_params(
+            X, pi_test, params, aggregate="mean", prior_mode="none",
+            eigen_jitter=False, omega_floor=False,
+        )
+        sum_value = evaluate_fixed_params(
+            X, pi_test, params, aggregate="sum", prior_mode="none",
+            eigen_jitter=False, omega_floor=False,
+        )
+
+        self.assertAlmostEqual(sum_value, 2 * mean_value, places=6)
+
+    def test_fixed_eta_ignores_diagnostic_eta_parameter(self):
+        X = np.zeros((61, 1))
+        X[15, :] = 4
+        X[47, :] = 19
+        pi_test = np.array([1 / 61 for i in range(61)])
+        params_eta_one = {
+            "alpha": 1.0,
+            "beta": 1.0,
+            "gamma": 1.0,
+            "delta": 1.0,
+            "epsilon": 1.0,
+            "eta": 1.0,
+            "theta": 0.5,
+            "omega": 0.5,
+        }
+        params_eta_two = dict(params_eta_one)
+        params_eta_two["eta"] = 2.0
+
+        eta_one = evaluate_fixed_params(
+            X, pi_test, params_eta_one, estimate_eta=False,
+            prior_mode="none", eigen_jitter=False, omega_floor=False,
+        )
+        eta_two = evaluate_fixed_params(
+            X, pi_test, params_eta_two, estimate_eta=False,
+            prior_mode="none", eigen_jitter=False, omega_floor=False,
+        )
+
+        self.assertAlmostEqual(eta_one, eta_two, places=6)
 
 
 if __name__ == '__main__':

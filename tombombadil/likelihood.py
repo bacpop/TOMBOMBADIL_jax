@@ -7,16 +7,13 @@ from jax import jit
 from .gtr import update_GTR
 from .gtr import build_GTR
 
-@jax.profiler.annotate_function
-@jit
-def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
+def _gen_alpha_impl(omega, A, pimat, pimult, pimatinv, scale, eigen_jitter):
     #print("A", A[7, ])
     mutmat = update_GTR(A, omega, pimult)
     #mutmat = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # compared these two versions (needs passing args to gen_alpha but update_GTR slightly faster)
     #print("mutmat", mutmat)
 
-    eps = 1e-6
-    mutmat = mutmat + eps * jnp.eye(mutmat.shape[-1]) # add jitter to diagonal (avoids repeated eigenvalues --> eigenvectors are not uniquely defined --> gradient of eigenvectors is undefined / discontinuous --> nans in optimizer)
+    mutmat = mutmat + eigen_jitter * jnp.eye(mutmat.shape[-1]) # add jitter to diagonal (avoids repeated eigenvalues --> eigenvectors are not uniquely defined --> gradient of eigenvectors is undefined / discontinuous --> nans in optimizer)
     # supposedly does not affect the model much (--> might need to confirm this later)
 
     #eigvals = jnp.linalg.eigvalsh(mutmat)
@@ -83,4 +80,15 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #print(jnp.diag(muti))
     return muti
 
+
+@jax.profiler.annotate_function
+@jit
+def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
+    return _gen_alpha_impl(omega, A, pimat, pimult, pimatinv, scale, 1e-6)
+
+
+@jax.profiler.annotate_function
+@jit
+def gen_alpha_no_jitter(omega, A, pimat, pimult, pimatinv, scale):
+    return _gen_alpha_impl(omega, A, pimat, pimult, pimatinv, scale, 0.0)
 
