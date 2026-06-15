@@ -60,7 +60,9 @@ def get_options():
                         help='Exclude invariant sites from the data likelihood. By default invariant '
                              'sites are included.')
     mGroup.add_argument('--output-jax', type=str, default=None, metavar='STEM',
-                        help='Save MAP estimates to STEM_scalar.csv. Default: do not save.')
+                        help='Save MAP or NUTS output files with the given stem. Default: do not save.')
+    mGroup.add_argument('--fit-method', choices=['map', 'nuts'], default='map',
+                        help='Fit with MAP optimisation or BlackJAX NUTS sampling (default: map).')
     mGroup.add_argument('--objective-aggregate', choices=['mean', 'sum'], default='sum',
                         help='Aggregate site log-likelihoods by mean or sum (default: sum).')
     mGroup.add_argument('--prior-mode',
@@ -79,6 +81,16 @@ def get_options():
                         help='Check convergence every N optimiser steps (default: 10).')
     mGroup.add_argument('--convergence-min-steps', type=int, default=50,
                         help='Minimum optimiser steps before convergence can stop fitting (default: 50).')
+    mGroup.add_argument('--num-warmup', type=int, default=1000,
+                        help='Number of BlackJAX NUTS warmup steps per chain (default: 1000).')
+    mGroup.add_argument('--num-samples', type=int, default=1000,
+                        help='Number of BlackJAX NUTS posterior draws per chain (default: 1000).')
+    mGroup.add_argument('--num-chains', type=int, default=4,
+                        help='Number of BlackJAX NUTS chains (default: 4).')
+    mGroup.add_argument('--rng-seed', type=int, default=0,
+                        help='Random seed for BlackJAX NUTS (default: 0).')
+    mGroup.add_argument('--target-acceptance-rate', type=float, default=0.8,
+                        help='Target acceptance rate for BlackJAX window adaptation (default: 0.8).')
 
     dGroup = parser.add_argument_group('Diagnostic fixed-parameter scoring')
     dGroup.add_argument('--diagnostic-fixed-params', action='store_true', default=False,
@@ -230,7 +242,13 @@ def main():
                 convergence_tol=options.convergence_tol,
                 convergence_patience=options.convergence_patience,
                 convergence_check_every=options.convergence_check_every,
-                convergence_min_steps=options.convergence_min_steps)
+                convergence_min_steps=options.convergence_min_steps,
+                fit_method=options.fit_method,
+                num_warmup=options.num_warmup,
+                num_samples=options.num_samples,
+                num_chains=options.num_chains,
+                rng_seed=options.rng_seed,
+                target_acceptance_rate=options.target_acceptance_rate)
 
 if __name__ == "__main__":
     main()

@@ -12,7 +12,10 @@ from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
 from tombombadil.sample import _optimize_params
 from tombombadil.sample import evaluate_fixed_params
+from tombombadil.sample import run_nuts_sampler
 from tombombadil.sample import save_params
+from tombombadil.sample import save_posterior_outputs
+from tombombadil.sample import summarize_posterior_samples
 from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
 from tombombadil.__main__ import count_codons
@@ -214,6 +217,12 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(args.convergence_patience, 5)
         self.assertEqual(args.convergence_check_every, 10)
         self.assertEqual(args.convergence_min_steps, 50)
+        self.assertEqual(args.fit_method, "map")
+        self.assertEqual(args.num_warmup, 1000)
+        self.assertEqual(args.num_samples, 1000)
+        self.assertEqual(args.num_chains, 4)
+        self.assertEqual(args.rng_seed, 0)
+        self.assertEqual(args.target_acceptance_rate, 0.8)
 
     def test_fix_eta_flag_disables_eta_estimation(self):
         argv = ["tombombadil", "--alignment", "porB3.carriage.noindels.txt", "--fix-eta"]
@@ -245,6 +254,34 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(args.convergence_patience, 3)
         self.assertEqual(args.convergence_check_every, 2)
         self.assertEqual(args.convergence_min_steps, 4)
+
+    def test_nuts_flags_parse(self):
+        argv = [
+            "tombombadil",
+            "--alignment",
+            "porB3.carriage.noindels.txt",
+            "--fit-method",
+            "nuts",
+            "--num-warmup",
+            "11",
+            "--num-samples",
+            "12",
+            "--num-chains",
+            "2",
+            "--rng-seed",
+            "9",
+            "--target-acceptance-rate",
+            "0.9",
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            args = get_options()
+
+        self.assertEqual(args.fit_method, "nuts")
+        self.assertEqual(args.num_warmup, 11)
+        self.assertEqual(args.num_samples, 12)
+        self.assertEqual(args.num_chains, 2)
+        self.assertEqual(args.rng_seed, 9)
+        self.assertEqual(args.target_acceptance_rate, 0.9)
 
 
 class TestOptimizerConvergence(unittest.TestCase):
@@ -280,6 +317,69 @@ class TestOptimizerConvergence(unittest.TestCase):
 
         self.assertFalse(result["converged"])
         self.assertEqual(result["n_steps"], 5)
+
+
+class TestBlackjaxPosterior(unittest.TestCase):
+    def test_posterior_summary_contains_diagnostics(self):
+        raw_samples = {
+            "alpha": jnp.array([[0.0, 0.1, 0.2], [0.1, 0.2, 0.3]], dtype=jnp.float64),
+            "omega": jnp.array([[-1.0, -0.9, -0.8], [-0.9, -0.8, -0.7]], dtype=jnp.float64),
+        }
+        infos = {
+            "acceptance_rate": jnp.array([[0.8, 0.9, 1.0], [0.7, 0.8, 0.9]]),
+            "is_divergent": jnp.array([[False, False, True], [False, False, False]]),
+        }
+
+        samples, summaries, diagnostics = summarize_posterior_samples(raw_samples, infos)
+
+        self.assertIn("alpha", samples)
+        self.assertIn("alpha", summaries)
+        self.assertIn("ess", summaries["alpha"])
+        self.assertIn("rhat", summaries["alpha"])
+        self.assertAlmostEqual(diagnostics["mean_acceptance_rate"], 0.85, places=6)
+        self.assertEqual(diagnostics["n_divergent"], 1)
+
+    def test_save_posterior_outputs_writes_samples_and_summary(self):
+        raw_samples = {
+            "alpha": jnp.array([[0.0, 0.1], [0.2, 0.3]], dtype=jnp.float64),
+            "omega": jnp.array([[-1.0, -0.9], [-0.8, -0.7]], dtype=jnp.float64),
+        }
+        infos = {
+            "acceptance_rate": jnp.ones((2, 2)),
+            "is_divergent": jnp.zeros((2, 2), dtype=bool),
+        }
+        _, summaries, _ = summarize_posterior_samples(raw_samples, infos)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stem = os.path.join(tmp, "fit")
+            save_posterior_outputs(stem, raw_samples, summaries)
+
+            self.assertTrue(os.path.exists(stem + "_posterior_samples.csv"))
+            self.assertTrue(os.path.exists(stem + "_posterior_summary.csv"))
+            with open(stem + "_posterior_summary.csv", newline="") as f:
+                rows = {row["variable"]: row for row in csv.DictReader(f)}
+
+        self.assertIn("alpha", rows)
+        self.assertIn("omega", rows)
+
+    def test_run_nuts_sampler_shapes_on_tiny_density(self):
+        fn = lambda p: -0.5 * jnp.square(p["alpha"])
+        start = {"alpha": jnp.array(0.1, dtype=jnp.float64)}
+
+        result = run_nuts_sampler(
+            fn,
+            start,
+            num_warmup=5,
+            num_samples=6,
+            num_chains=2,
+            rng_seed=123,
+            target_acceptance_rate=0.8,
+            print_summary=False,
+        )
+
+        self.assertEqual(result["samples"]["alpha"].shape, (2, 6))
+        self.assertIn("alpha", result["summaries"])
+        self.assertIn("mean_acceptance_rate", result["diagnostics"])
 
 
 if __name__ == '__main__':

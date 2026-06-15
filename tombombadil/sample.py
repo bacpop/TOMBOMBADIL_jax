@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.special as special
 from jax.scipy.special import gammaln
+import blackjax
 import optax
 from jax import jit
 from jax.flatten_util import ravel_pytree
@@ -260,6 +261,26 @@ def make_mask(X):
     return np.where(col_max == col_sum, 0, 1)
 
 
+def make_base_params(estimate_eta=True):
+    """Build default raw initial parameters for scalar-GTR fitting."""
+    params = {
+        "alpha":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
+        "beta":    jnp.array(softplus_inverse(1),   dtype=jnp.float64),
+        "gamma":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
+        "delta":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
+        "epsilon": jnp.array(softplus_inverse(1),   dtype=jnp.float64),
+        "theta":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
+        "omega":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
+    }
+    if estimate_eta:
+        params["eta"] = jnp.array(softplus_inverse(1), dtype=jnp.float64)
+    return params
+
+
+def make_param_labels(params):
+    return {k: "scalar" for k in params}
+
+
 def evaluate_fixed_params(X, pi_eq, natural_params, include_invariant=True,
                           aggregate="sum", prior_mode="none",
                           estimate_eta=True, eigen_jitter=False,
@@ -414,6 +435,160 @@ def save_params(output_stem: str, params: dict, mask: np.ndarray = None) -> None
     logging.info("Saved scalar parameters to: %s", scalar_path)
 
 
+def _sample_blackjax_chain(logdensity_fn, initial_position, rng_key, num_warmup,
+                           num_samples, target_acceptance_rate):
+    """Warm up and sample one NUTS chain with BlackJAX."""
+    warmup = blackjax.window_adaptation(
+        blackjax.nuts,
+        logdensity_fn,
+        target_acceptance_rate=target_acceptance_rate,
+    )
+    warmup_key, sample_key = jax.random.split(rng_key)
+    (state, parameters), _ = warmup.run(warmup_key, initial_position, num_steps=num_warmup)
+    kernel = blackjax.nuts(logdensity_fn, **parameters).step
+
+    @jax.jit
+    def one_step(current_state, step_key):
+        new_state, info = kernel(step_key, current_state)
+        sample_info = {
+            "acceptance_rate": info.acceptance_rate,
+            "is_divergent": info.is_divergent,
+        }
+        return new_state, (new_state.position, sample_info)
+
+    sample_keys = jax.random.split(sample_key, num_samples)
+    _, (positions, infos) = jax.lax.scan(one_step, state, sample_keys)
+    return positions, infos, parameters
+
+
+def _stack_chain_pytrees(chain_pytrees):
+    return jax.tree.map(lambda *xs: jnp.stack(xs), *chain_pytrees)
+
+
+def _posterior_draws_natural(raw_samples):
+    return {k: positive(v) for k, v in raw_samples.items()}
+
+
+def summarize_posterior_samples(raw_samples, infos):
+    """Summarize posterior samples and BlackJAX diagnostics on natural scale."""
+    samples = _posterior_draws_natural(raw_samples)
+    summaries = {}
+    for k in SCALAR_PARAM_KEYS_WITH_ETA:
+        if k not in samples:
+            continue
+        vals = np.asarray(samples[k])
+        flat = vals.reshape(-1)
+        summaries[k] = {
+            "mean": float(np.mean(flat)),
+            "sd": float(np.std(flat, ddof=1)) if flat.size > 1 else 0.0,
+            "median": float(np.quantile(flat, 0.5)),
+            "q2.5": float(np.quantile(flat, 0.025)),
+            "q25": float(np.quantile(flat, 0.25)),
+            "q75": float(np.quantile(flat, 0.75)),
+            "q97.5": float(np.quantile(flat, 0.975)),
+            "ess": float(blackjax.ess(samples[k])),
+            "rhat": float(blackjax.rhat(samples[k])) if vals.shape[0] > 1 else np.nan,
+        }
+
+    diagnostics = {
+        "mean_acceptance_rate": float(jnp.mean(infos["acceptance_rate"])),
+        "n_divergent": int(jnp.sum(infos["is_divergent"])),
+    }
+    return samples, summaries, diagnostics
+
+
+def save_posterior_outputs(output_stem, raw_samples, summaries):
+    """Save posterior draws and scalar summaries to CSV files."""
+    samples = _posterior_draws_natural(raw_samples)
+    keys = [k for k in SCALAR_PARAM_KEYS_WITH_ETA if k in samples]
+    samples_path = output_stem + "_posterior_samples.csv"
+    with open(samples_path, "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["chain", "draw"] + keys)
+        n_chains, n_draws = np.asarray(samples[keys[0]]).shape[:2]
+        for chain in range(n_chains):
+            for draw in range(n_draws):
+                w.writerow([chain, draw] + [float(samples[k][chain, draw]) for k in keys])
+
+    summary_path = output_stem + "_posterior_summary.csv"
+    with open(summary_path, "w", newline="") as f:
+        w = _csv.writer(f)
+        fields = ["variable", "mean", "sd", "median", "q2.5", "q25", "q75", "q97.5", "ess", "rhat"]
+        w.writerow(fields)
+        for k in keys:
+            row = summaries[k]
+            w.writerow([k] + [row[field] for field in fields[1:]])
+
+    logging.info("Saved posterior samples to: %s", samples_path)
+    logging.info("Saved posterior summary to: %s", summary_path)
+
+
+def _print_posterior_summary(summaries, diagnostics):
+    print("\n--- BlackJAX NUTS posterior summary (natural scale) ---")
+    for k in SCALAR_PARAM_KEYS_WITH_ETA:
+        if k not in summaries:
+            continue
+        s = summaries[k]
+        print(
+            f"  {k:8s}: mean={s['mean']:.4f}, median={s['median']:.4f}, "
+            f"95% CI=({s['q2.5']:.4f}, {s['q97.5']:.4f}), "
+            f"ESS={s['ess']:.1f}, R-hat={s['rhat']:.4f}"
+        )
+    print(
+        f"Diagnostics: mean acceptance={diagnostics['mean_acceptance_rate']:.4f}, "
+        f"divergences={diagnostics['n_divergent']}"
+    )
+    print("------------------------------------------------------\n")
+
+
+def run_nuts_sampler(fn, start_params, num_warmup=1000, num_samples=1000,
+                     num_chains=4, rng_seed=0, target_acceptance_rate=0.8,
+                     output=None, print_summary=True):
+    """Run BlackJAX NUTS from raw unconstrained starting parameters."""
+    rng_key = jax.random.PRNGKey(rng_seed)
+    chain_keys = jax.random.split(rng_key, num_chains)
+    initial_positions = []
+    for chain in range(num_chains):
+        if chain == 0:
+            initial_positions.append(start_params)
+        else:
+            initial_positions.append(_perturb_params(start_params))
+
+    chain_positions = []
+    chain_infos = []
+    adapted_parameters = []
+    for chain in range(num_chains):
+        logging.info("Running BlackJAX NUTS chain %s/%s", chain + 1, num_chains)
+        positions, infos, parameters = _sample_blackjax_chain(
+            fn,
+            initial_positions[chain],
+            chain_keys[chain],
+            num_warmup,
+            num_samples,
+            target_acceptance_rate,
+        )
+        chain_positions.append(positions)
+        chain_infos.append(infos)
+        adapted_parameters.append(parameters)
+
+    raw_samples = _stack_chain_pytrees(chain_positions)
+    infos = _stack_chain_pytrees(chain_infos)
+    natural_samples, summaries, diagnostics = summarize_posterior_samples(raw_samples, infos)
+    if print_summary:
+        _print_posterior_summary(summaries, diagnostics)
+    if output is not None:
+        save_posterior_outputs(output, raw_samples, summaries)
+
+    return {
+        "raw_samples": raw_samples,
+        "samples": natural_samples,
+        "summaries": summaries,
+        "diagnostics": diagnostics,
+        "infos": infos,
+        "adapted_parameters": adapted_parameters,
+    }
+
+
 def _perturb_params(params, scale=0.5):
     """Add Normal(0, scale) noise to all parameters in raw (unconstrained) space."""
     key = jax.random.PRNGKey(int(np.random.randint(0, 2**31)))
@@ -506,7 +681,9 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 eigen_jitter=True, omega_floor=True,
                 fit_until_convergence=False, convergence_tol=1e-6,
                 convergence_patience=5, convergence_check_every=10,
-                convergence_min_steps=50):
+                convergence_min_steps=50, fit_method="map",
+                num_warmup=1000, num_samples=1000, num_chains=4,
+                rng_seed=0, target_acceptance_rate=0.8):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -580,26 +757,33 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
     #log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     logging.info("Compiling model...")
 
-    # Base params and labels shared by both runs
-    # eta is fixed to 1.0 inside make_fn(); it is intentionally not part of the
-    # sampled parameter set so the global GTR rate scale is identified.
-    base_params = {
-        "alpha":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "beta":    jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "gamma":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "delta":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "epsilon": jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "theta":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
-        "omega":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
-    }
-    if estimate_eta:
-        base_params["eta"] = jnp.array(softplus_inverse(1), dtype=jnp.float64)
-    base_labels = {
-        "omega": "scalar", "alpha": "scalar", "beta": "scalar", "gamma": "scalar",
-        "delta": "scalar", "epsilon": "scalar", "theta": "scalar",
-    }
-    if estimate_eta:
-        base_labels["eta"] = "scalar"
+    base_params = make_base_params(estimate_eta=estimate_eta)
+    base_labels = make_param_labels(base_params)
+    fn = make_fn(
+        pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
+        include_invariant=include_invariant,
+        aggregate=aggregate,
+        prior_mode=prior_mode,
+        estimate_eta=estimate_eta,
+        eigen_jitter=eigen_jitter,
+        omega_floor=omega_floor,
+    )
+
+    if fit_method == "nuts":
+        logging.info(
+            "Running BlackJAX NUTS — %s chain(s), %s warmup step(s), %s draw(s)",
+            num_chains, num_warmup, num_samples,
+        )
+        return run_nuts_sampler(
+            fn,
+            base_params,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=num_chains,
+            rng_seed=rng_seed,
+            target_acceptance_rate=target_acceptance_rate,
+            output=output,
+        )
 
     logging.info(f"Running optimization — {fit_replicates} replicate(s)...")
     convergence = None
@@ -611,15 +795,6 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
             "check_every": convergence_check_every,
             "min_steps": convergence_min_steps,
         }
-    fn = make_fn(
-        pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
-        include_invariant=include_invariant,
-        aggregate=aggregate,
-        prior_mode=prior_mode,
-        estimate_eta=estimate_eta,
-        eigen_jitter=eigen_jitter,
-        omega_floor=omega_floor,
-    )
     all_params, best_idx, all_metadata = _run_replicates(
         fn, base_params, base_labels, fit_replicates, n_iter=samples,
         convergence=convergence,
@@ -648,3 +823,9 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
 
     if output is not None:
         save_params(output, params)
+
+    return {
+        "params": params,
+        "objective": float(fn(params)),
+        "metadata": best_metadata,
+    }
