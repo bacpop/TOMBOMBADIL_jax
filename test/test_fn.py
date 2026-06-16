@@ -5,9 +5,11 @@ import tempfile
 import unittest # for performing unit tests
 from unittest import mock
 import numpy as np
+import jax
 import jax.numpy as jnp
 import optax
 
+from tombombadil.__main__ import configure_jax_for_options
 from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
 from tombombadil.sample import _optimize_params
@@ -223,6 +225,7 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(args.num_chains, 4)
         self.assertEqual(args.rng_seed, 0)
         self.assertEqual(args.target_acceptance_rate, 0.8)
+        self.assertEqual(args.nuts_chain_mode, "sequential")
 
     def test_fix_eta_flag_disables_eta_estimation(self):
         argv = ["tombombadil", "--alignment", "porB3.carriage.noindels.txt", "--fix-eta"]
@@ -272,6 +275,8 @@ class TestCliDefaults(unittest.TestCase):
             "9",
             "--target-acceptance-rate",
             "0.9",
+            "--nuts-chain-mode",
+            "pmap",
         ]
         with mock.patch.object(sys, "argv", argv):
             args = get_options()
@@ -282,6 +287,29 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(args.num_chains, 2)
         self.assertEqual(args.rng_seed, 9)
         self.assertEqual(args.target_acceptance_rate, 0.9)
+        self.assertEqual(args.nuts_chain_mode, "pmap")
+
+    def test_cpu_pmap_configures_jax_host_devices(self):
+        argv = [
+            "tombombadil",
+            "--alignment",
+            "porB3.carriage.noindels.txt",
+            "--fit-method",
+            "nuts",
+            "--nuts-chain-mode",
+            "pmap",
+            "--cpus",
+            "3",
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            args = get_options()
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            configure_jax_for_options(args)
+            self.assertEqual(
+                os.environ["XLA_FLAGS"],
+                "--xla_force_host_platform_device_count=3",
+            )
 
 
 class TestOptimizerConvergence(unittest.TestCase):
@@ -380,6 +408,45 @@ class TestBlackjaxPosterior(unittest.TestCase):
         self.assertEqual(result["samples"]["alpha"].shape, (2, 6))
         self.assertIn("alpha", result["summaries"])
         self.assertIn("mean_acceptance_rate", result["diagnostics"])
+
+    def test_run_nuts_sampler_pmap_requires_enough_devices(self):
+        if jax.local_device_count() >= 2:
+            self.skipTest("pmap guard only applies when JAX sees fewer than two devices")
+
+        fn = lambda p: -0.5 * jnp.square(p["alpha"])
+        start = {"alpha": jnp.array(0.1, dtype=jnp.float64)}
+
+        with self.assertRaisesRegex(ValueError, "JAX sees only"):
+            run_nuts_sampler(
+                fn,
+                start,
+                num_warmup=5,
+                num_samples=6,
+                num_chains=2,
+                rng_seed=123,
+                target_acceptance_rate=0.8,
+                print_summary=False,
+                chain_mode="pmap",
+            )
+
+    def test_run_nuts_sampler_pmap_shapes_on_single_chain(self):
+        fn = lambda p: -0.5 * jnp.square(p["alpha"])
+        start = {"alpha": jnp.array(0.1, dtype=jnp.float64)}
+
+        result = run_nuts_sampler(
+            fn,
+            start,
+            num_warmup=5,
+            num_samples=6,
+            num_chains=1,
+            rng_seed=123,
+            target_acceptance_rate=0.8,
+            print_summary=False,
+            chain_mode="pmap",
+        )
+
+        self.assertEqual(result["samples"]["alpha"].shape, (1, 6))
+        self.assertIn("alpha", result["summaries"])
 
 
 if __name__ == '__main__':

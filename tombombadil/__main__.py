@@ -2,11 +2,10 @@
 
 import logging
 import gzip
+import os
 import numpy as np
 
 from .__init__ import __version__
-from .sample import evaluate_fixed_params
-from .sample import run_sampler
 
 # expected order
 # "TTT","TTC","TTA","TTG","TCT","TCC","TCA","TCG","TAT","TAC","TGT","TGC"
@@ -121,10 +120,13 @@ def get_options():
                         help='Sampling iterations')
 
     hGroup = parser.add_argument_group('Hardware options')
-    sGroup.add_argument('--platform', choices=['cpu', 'gpu', 'tpu'], default='cpu',
+    hGroup.add_argument('--platform', choices=['cpu', 'gpu', 'tpu'], default='cpu',
                         help='Which hardware/device to run on')
-    sGroup.add_argument('--cpus', type=int, default=8,
+    hGroup.add_argument('--cpus', type=int, default=8,
                         help='Number of CPU cores to use')
+    hGroup.add_argument('--nuts-chain-mode', choices=['sequential', 'pmap'], default='sequential',
+                        help='Run NUTS chains sequentially or in parallel across JAX devices '
+                             '(default: sequential).')
 
     other = parser.add_argument_group('Other options')
     other.add_argument('--version', action='version',
@@ -191,6 +193,19 @@ def count_codons(file_name):
 
     return X, n_samples
 
+def configure_jax_for_options(options):
+    """Set JAX process flags that must exist before JAX is imported."""
+    if (
+        options.fit_method == "nuts"
+        and options.nuts_chain_mode == "pmap"
+        and options.platform == "cpu"
+    ):
+        cpu_devices = max(int(options.cpus), 1)
+        flag = f"--xla_force_host_platform_device_count={cpu_devices}"
+        existing = os.environ.get("XLA_FLAGS", "")
+        if "--xla_force_host_platform_device_count" not in existing:
+            os.environ["XLA_FLAGS"] = f"{existing} {flag}".strip()
+
 def main():
     logging.basicConfig(
         format='%(asctime)s %(levelname)-8s %(message)s',
@@ -199,6 +214,7 @@ def main():
         force=True)
 
     options = get_options()
+    configure_jax_for_options(options)
     logging.info("Reading alignment...")
     X, n_samples = count_codons(options.alignment)
     logging.info(f"Read {n_samples} samples and {X.shape[1]} codons")
@@ -208,6 +224,8 @@ def main():
         pi = np.array([1/61 for i in range(61)])
 
     if options.diagnostic_fixed_params:
+        from .sample import evaluate_fixed_params
+
         diagnostic_params = {
             "alpha": options.diagnostic_alpha,
             "beta": options.diagnostic_beta,
@@ -230,6 +248,8 @@ def main():
         print(f"Diagnostic scalar-GTR objective: {value:.10f}")
         return
 
+    from .sample import run_sampler
+
     run_sampler(X, pi, options.sample_it, options.platform, options.cpus,
                 estimate_uncertainty=options.estimate_uncertainty,
                 fit_replicates=options.fit_replicates,
@@ -248,7 +268,8 @@ def main():
                 num_samples=options.num_samples,
                 num_chains=options.num_chains,
                 rng_seed=options.rng_seed,
-                target_acceptance_rate=options.target_acceptance_rate)
+                target_acceptance_rate=options.target_acceptance_rate,
+                nuts_chain_mode=options.nuts_chain_mode)
 
 if __name__ == "__main__":
     main()
