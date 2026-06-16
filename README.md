@@ -20,3 +20,10 @@ install Python 3.14.0
 run using  
 
 python -m tombombadil --alignment alignment.fas.aln --fit-replicates 4 --fit-until-convergence
+
+optional: blackJax
+
+python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4
+
+optional: blackJax with parallel chains
+python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --nuts-chain-mode pmap

@@ -461,6 +461,33 @@ def _sample_blackjax_chain(logdensity_fn, initial_position, rng_key, num_warmup,
     return positions, infos, parameters
 
 
+def _sample_blackjax_chains_pmap(logdensity_fn, initial_positions, rng_keys,
+                                 num_warmup, num_samples,
+                                 target_acceptance_rate):
+    """Warm up and sample NUTS chains in parallel across JAX devices."""
+    num_chains = int(rng_keys.shape[0])
+    n_devices = jax.local_device_count()
+    if num_chains > n_devices:
+        raise ValueError(
+            f"Requested {num_chains} pmap NUTS chain(s), but JAX sees only "
+            f"{n_devices} local device(s). On CPU, run through the CLI with "
+            f"--nuts-chain-mode pmap --cpus {num_chains} before JAX is imported, "
+            "or use --nuts-chain-mode sequential."
+        )
+
+    def run_chain(initial_position, rng_key):
+        return _sample_blackjax_chain(
+            logdensity_fn,
+            initial_position,
+            rng_key,
+            num_warmup,
+            num_samples,
+            target_acceptance_rate,
+        )
+
+    return jax.pmap(run_chain)(initial_positions, rng_keys)
+
+
 def _stack_chain_pytrees(chain_pytrees):
     return jax.tree.map(lambda *xs: jnp.stack(xs), *chain_pytrees)
 
@@ -543,8 +570,12 @@ def _print_posterior_summary(summaries, diagnostics):
 
 def run_nuts_sampler(fn, start_params, num_warmup=1000, num_samples=1000,
                      num_chains=4, rng_seed=0, target_acceptance_rate=0.8,
-                     output=None, print_summary=True):
+                     output=None, print_summary=True,
+                     chain_mode="sequential"):
     """Run BlackJAX NUTS from raw unconstrained starting parameters."""
+    if chain_mode not in ("sequential", "pmap"):
+        raise ValueError(f"Unknown NUTS chain mode: {chain_mode}")
+
     rng_key = jax.random.PRNGKey(rng_seed)
     chain_keys = jax.random.split(rng_key, num_chains)
     initial_positions = []
@@ -554,25 +585,41 @@ def run_nuts_sampler(fn, start_params, num_warmup=1000, num_samples=1000,
         else:
             initial_positions.append(_perturb_params(start_params))
 
-    chain_positions = []
-    chain_infos = []
-    adapted_parameters = []
-    for chain in range(num_chains):
-        logging.info("Running BlackJAX NUTS chain %s/%s", chain + 1, num_chains)
-        positions, infos, parameters = _sample_blackjax_chain(
+    if chain_mode == "pmap":
+        logging.info(
+            "Running %s BlackJAX NUTS chain(s) with pmap across %s local JAX device(s)",
+            num_chains, jax.local_device_count(),
+        )
+        stacked_initial_positions = _stack_chain_pytrees(initial_positions)
+        raw_samples, infos, adapted_parameters = _sample_blackjax_chains_pmap(
             fn,
-            initial_positions[chain],
-            chain_keys[chain],
+            stacked_initial_positions,
+            chain_keys,
             num_warmup,
             num_samples,
             target_acceptance_rate,
         )
-        chain_positions.append(positions)
-        chain_infos.append(infos)
-        adapted_parameters.append(parameters)
+    else:
+        chain_positions = []
+        chain_infos = []
+        adapted_parameters = []
+        for chain in range(num_chains):
+            logging.info("Running BlackJAX NUTS chain %s/%s", chain + 1, num_chains)
+            positions, infos, parameters = _sample_blackjax_chain(
+                fn,
+                initial_positions[chain],
+                chain_keys[chain],
+                num_warmup,
+                num_samples,
+                target_acceptance_rate,
+            )
+            chain_positions.append(positions)
+            chain_infos.append(infos)
+            adapted_parameters.append(parameters)
 
-    raw_samples = _stack_chain_pytrees(chain_positions)
-    infos = _stack_chain_pytrees(chain_infos)
+        raw_samples = _stack_chain_pytrees(chain_positions)
+        infos = _stack_chain_pytrees(chain_infos)
+
     natural_samples, summaries, diagnostics = summarize_posterior_samples(raw_samples, infos)
     if print_summary:
         _print_posterior_summary(summaries, diagnostics)
@@ -683,7 +730,8 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 convergence_patience=5, convergence_check_every=10,
                 convergence_min_steps=50, fit_method="map",
                 num_warmup=1000, num_samples=1000, num_chains=4,
-                rng_seed=0, target_acceptance_rate=0.8):
+                rng_seed=0, target_acceptance_rate=0.8,
+                nuts_chain_mode="sequential"):
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -783,6 +831,7 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
             rng_seed=rng_seed,
             target_acceptance_rate=target_acceptance_rate,
             output=output,
+            chain_mode=nuts_chain_mode,
         )
 
     logging.info(f"Running optimization — {fit_replicates} replicate(s)...")
