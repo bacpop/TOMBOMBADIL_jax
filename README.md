@@ -19,11 +19,18 @@ install Python 3.14.0
 
 run using  
 
-python -m tombombadil --alignment alignment.fas.aln --fit-replicates 4 --fit-until-convergence
+python -m tombombadil --alignment alignment.fas.aln --fit-replicates 4 --fit-until-convergence --output-jax output.txt
 
 optional: blackJax
 
-python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4
+python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --output-jax output.txt
 
 optional: blackJax with parallel chains
-python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --nuts-chain-mode pmap
+
+python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --nuts-chain-mode pmap --output-jax output.txt
+
+# More options
+--convergence-tol x default=1e-6
+--sample-it x number of sampling steps
+--platform gpu/cpu/tpu
+--cpus x default=8 number of cpus
