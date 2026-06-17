@@ -35,6 +35,20 @@ col_order = np.array([63, 61, 60, 62, 55, 53, 52, 54, 51, 49, 59, 57, 58, 31, 29
 # TGA = STOP = 56, TGC = 57, TGG = 58, TGT = 59
 # TTA = 60, TTC = 61, TTG = 62, TTT = 63
 
+BASE_ORDER = ("T", "C", "A", "G")
+STOP_CODONS = {"TAA", "TAG", "TGA"}
+CODON_LIST = tuple(
+    codon
+    for codon in (
+        first + second + third
+        for first in BASE_ORDER
+        for second in BASE_ORDER
+        for third in BASE_ORDER
+    )
+    if codon not in STOP_CODONS
+)
+BASE_TO_INDEX = {base: idx for idx, base in enumerate(BASE_ORDER)}
+
 def get_options():
     import argparse
     parser = argparse.ArgumentParser(description='TOMBOMBADIL (Tree-free Omega Mapping By Observing Mutations of Bases and Amino acids Distributed Inside Loci)',
@@ -46,11 +60,11 @@ def get_options():
                         help='Alignment file to fit model to')
 
     mGroup = parser.add_argument_group('Model options')
-    mGroup.add_argument('--pi', choices=['uniform', 'empirical'], default='uniform',
+    mGroup.add_argument('--pi', choices=['uniform', 'empirical', 'F3x4'], default='uniform',
                         help='Codon equilibrium frequencies: uniform or estimated from the alignment '
                              '(default: uniform)')
     mGroup.add_argument('--pi-pseudocount', type=float, default=0.5,
-                        help='Pseudocount added to each non-stop codon when --pi empirical is used '
+                        help='Pseudocount used when --pi empirical or --pi F3x4 is selected '
                              '(default: 0.5)')
     mGroup.add_argument('--estimate-uncertainty', action='store_true', default=False,
                         help='Compute per-parameter standard errors via diagonal Laplace approximation '
@@ -221,6 +235,55 @@ def estimate_pi_from_counts(X, pseudocount=0.5):
     print("pi",pi)
     return pi
 
+def estimate_f3x4_frequencies_from_counts(X, pseudocount=0.5):
+    X = np.asarray(X)
+    if X.shape[0] != 61:
+        raise ValueError(f"Expected codon count matrix with 61 rows, got {X.shape[0]}")
+    if pseudocount < 0:
+        raise ValueError("--pi-pseudocount must be non-negative")
+
+    observed_counts = X.sum(axis=1, dtype=np.float64)
+    if observed_counts.sum() <= 0:
+        raise ValueError("Cannot estimate F3x4 pi: no non-stop codons were observed in the alignment")
+
+    nucleotide_counts = np.full((3, 4), pseudocount, dtype=np.float64)
+    for codon, count in zip(CODON_LIST, observed_counts):
+        for position, base in enumerate(codon):
+            nucleotide_counts[position, BASE_TO_INDEX[base]] += count
+
+    row_totals = nucleotide_counts.sum(axis=1, keepdims=True)
+    if np.any(row_totals <= 0):
+        raise ValueError("Cannot estimate F3x4 pi: smoothed nucleotide counts sum to zero")
+
+    frequencies = nucleotide_counts / row_totals
+    if frequencies.shape != (3, 4) or not np.all(np.isfinite(frequencies)) or np.any(frequencies <= 0):
+        raise ValueError(
+            "Estimated F3x4 nucleotide frequencies must be a finite, strictly positive 3x4 matrix"
+        )
+
+    return frequencies
+
+def estimate_f3x4_pi_from_counts(X, pseudocount=0.5):
+    frequencies = estimate_f3x4_frequencies_from_counts(X, pseudocount)
+    pi = np.array(
+        [
+            frequencies[0, BASE_TO_INDEX[codon[0]]]
+            * frequencies[1, BASE_TO_INDEX[codon[1]]]
+            * frequencies[2, BASE_TO_INDEX[codon[2]]]
+            for codon in CODON_LIST
+        ],
+        dtype=np.float64,
+    )
+    total = pi.sum()
+    if total <= 0:
+        raise ValueError("Cannot estimate F3x4 pi: codon frequencies sum to zero")
+
+    pi = pi / total
+    if pi.shape != (61,) or not np.all(np.isfinite(pi)) or np.any(pi <= 0):
+        raise ValueError("Estimated F3x4 pi must contain 61 finite, strictly positive codon frequencies")
+
+    return pi
+
 def configure_jax_for_options(options):
     """Set JAX process flags that must exist before JAX is imported."""
     if (
@@ -255,6 +318,12 @@ def main():
         pi = estimate_pi_from_counts(X, options.pi_pseudocount)
         logging.info(
             "Using empirical codon equilibrium frequencies estimated from alignment "
+            f"with pseudocount {options.pi_pseudocount}"
+        )
+    elif options.pi == 'F3x4':
+        pi = estimate_f3x4_pi_from_counts(X, options.pi_pseudocount)
+        logging.info(
+            "Using F3x4 codon equilibrium frequencies estimated from alignment "
             f"with pseudocount {options.pi_pseudocount}"
         )
     else:

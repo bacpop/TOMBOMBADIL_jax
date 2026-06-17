@@ -10,7 +10,10 @@ import jax.numpy as jnp
 import optax
 
 from tombombadil.__main__ import configure_jax_for_options
+from tombombadil.__main__ import CODON_LIST
 from tombombadil.__main__ import estimate_pi_from_counts
+from tombombadil.__main__ import estimate_f3x4_frequencies_from_counts
+from tombombadil.__main__ import estimate_f3x4_pi_from_counts
 from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
 from tombombadil.sample import _optimize_params
@@ -22,6 +25,17 @@ from tombombadil.sample import summarize_posterior_samples
 from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
 from tombombadil.__main__ import count_codons
+
+class TestCodonOrder(unittest.TestCase):
+    def test_codon_list_matches_model_order(self):
+        self.assertEqual(61, len(CODON_LIST))
+        self.assertEqual("TTT", CODON_LIST[0])
+        self.assertEqual("ATG", CODON_LIST[32])
+        self.assertEqual("GGG", CODON_LIST[60])
+        self.assertNotIn("TAA", CODON_LIST)
+        self.assertNotIn("TAG", CODON_LIST)
+        self.assertNotIn("TGA", CODON_LIST)
+
 
 class TestEstimatePiFromCounts(unittest.TestCase):
     def test_estimated_pi_sums_to_one(self):
@@ -75,11 +89,73 @@ class TestPiOptions(unittest.TestCase):
         self.assertEqual("empirical", options.pi)
         self.assertEqual(1.25, options.pi_pseudocount)
 
+    def test_f3x4_pi_options_parse(self):
+        argv = [
+            "tombombadil",
+            "--alignment", "alignment.fasta",
+            "--pi", "F3x4",
+            "--pi-pseudocount", "0.25",
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            options = get_options()
+
+        self.assertEqual("F3x4", options.pi)
+        self.assertEqual(0.25, options.pi_pseudocount)
+
     def test_invalid_pi_option_rejected(self):
         argv = ["tombombadil", "--alignment", "alignment.fasta", "--pi", "bad"]
         with mock.patch.object(sys, "argv", argv):
             with self.assertRaises(SystemExit):
                 get_options()
+
+
+class TestEstimateF3x4PiFromCounts(unittest.TestCase):
+    def test_f3x4_position_frequencies(self):
+        X = np.zeros((61, 1), dtype=int)
+        X[CODON_LIST.index("ATG"), 0] = 2
+        X[CODON_LIST.index("ACG"), 0] = 1
+
+        frequencies = estimate_f3x4_frequencies_from_counts(X, pseudocount=1.0)
+
+        expected = np.array([
+            [1 / 7, 1 / 7, 4 / 7, 1 / 7],
+            [3 / 7, 2 / 7, 1 / 7, 1 / 7],
+            [1 / 7, 1 / 7, 1 / 7, 4 / 7],
+        ])
+        np.testing.assert_allclose(expected, frequencies)
+
+    def test_f3x4_pi_uses_product_of_position_frequencies(self):
+        X = np.zeros((61, 1), dtype=int)
+        X[CODON_LIST.index("ATG"), 0] = 2
+        X[CODON_LIST.index("ACG"), 0] = 1
+
+        frequencies = estimate_f3x4_frequencies_from_counts(X, pseudocount=1.0)
+        pi = estimate_f3x4_pi_from_counts(X, pseudocount=1.0)
+        atg_idx = CODON_LIST.index("ATG")
+        unnormalized_atg = frequencies[0, 2] * frequencies[1, 0] * frequencies[2, 3]
+        unnormalized = np.array([
+            frequencies[0, "TCAG".index(codon[0])]
+            * frequencies[1, "TCAG".index(codon[1])]
+            * frequencies[2, "TCAG".index(codon[2])]
+            for codon in CODON_LIST
+        ])
+
+        self.assertEqual((61,), pi.shape)
+        self.assertAlmostEqual(1.0, pi.sum(), places=12)
+        self.assertTrue(np.all(pi > 0))
+        self.assertAlmostEqual(unnormalized_atg / unnormalized.sum(), pi[atg_idx])
+
+    def test_f3x4_rejects_empty_counts(self):
+        X = np.zeros((61, 1), dtype=int)
+
+        with self.assertRaises(ValueError):
+            estimate_f3x4_pi_from_counts(X, pseudocount=0.5)
+
+    def test_f3x4_rejects_negative_pseudocount(self):
+        X = np.ones((61, 1), dtype=int)
+
+        with self.assertRaises(ValueError):
+            estimate_f3x4_pi_from_counts(X, pseudocount=-0.1)
 
 
 # a test for calculating the likelihood (fn) for one codon

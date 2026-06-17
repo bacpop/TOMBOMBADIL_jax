@@ -38,6 +38,6 @@ python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warm
 
 --cpus x default=8 number of cpus
 
---pi uniform/empirical default=uniform codon equilibrium frequencies
+--pi uniform/empirical/F3x4 default=uniform codon equilibrium frequencies
 
---pi-pseudocount x default=0.5 pseudocount for empirical codon frequencies
+--pi-pseudocount x default=0.5 pseudocount for empirical and F3x4 codon frequencies
