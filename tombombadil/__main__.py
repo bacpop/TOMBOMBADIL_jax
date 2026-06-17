@@ -46,8 +46,12 @@ def get_options():
                         help='Alignment file to fit model to')
 
     mGroup = parser.add_argument_group('Model options')
-    mGroup.add_argument('--pi', type=str, default=None,
-                        help='Pi equilibrium vector (default all equal)')
+    mGroup.add_argument('--pi', choices=['uniform', 'empirical'], default='uniform',
+                        help='Codon equilibrium frequencies: uniform or estimated from the alignment '
+                             '(default: uniform)')
+    mGroup.add_argument('--pi-pseudocount', type=float, default=0.5,
+                        help='Pseudocount added to each non-stop codon when --pi empirical is used '
+                             '(default: 0.5)')
     mGroup.add_argument('--estimate-uncertainty', action='store_true', default=False,
                         help='Compute per-parameter standard errors via diagonal Laplace approximation '
                              '(Hessian-based). Can be memory-intensive for large alignments.')
@@ -193,6 +197,30 @@ def count_codons(file_name):
 
     return X, n_samples
 
+def estimate_pi_from_counts(X, pseudocount=0.5):
+    X = np.asarray(X)
+    if X.shape[0] != 61:
+        raise ValueError(f"Expected codon count matrix with 61 rows, got {X.shape[0]}")
+    if pseudocount < 0:
+        raise ValueError("--pi-pseudocount must be non-negative")
+
+    observed_counts = X.sum(axis=1, dtype=np.float64)
+    if observed_counts.sum() <= 0:
+        raise ValueError("Cannot estimate pi: no non-stop codons were observed in the alignment")
+
+    smoothed_counts = observed_counts + pseudocount
+    total = smoothed_counts.sum()
+    if total <= 0:
+        raise ValueError("Cannot estimate pi: smoothed codon counts sum to zero")
+
+    pi = smoothed_counts / total
+    if pi.shape != (61,) or not np.all(np.isfinite(pi)) or np.any(pi <= 0):
+        raise ValueError(
+            "Estimated pi must contain 61 finite, strictly positive non-stop codon frequencies"
+        )
+    print("pi",pi)
+    return pi
+
 def configure_jax_for_options(options):
     """Set JAX process flags that must exist before JAX is imported."""
     if (
@@ -220,8 +248,17 @@ def main():
     logging.info(f"Read {n_samples} samples and {X.shape[1]} codons")
 
     #print("X",X.max())
-    if options.pi is None:
-        pi = np.array([1/61 for i in range(61)])
+    if options.pi == 'uniform':
+        pi = np.full(61, 1 / 61)
+        logging.info("Using uniform codon equilibrium frequencies")
+    elif options.pi == 'empirical':
+        pi = estimate_pi_from_counts(X, options.pi_pseudocount)
+        logging.info(
+            "Using empirical codon equilibrium frequencies estimated from alignment "
+            f"with pseudocount {options.pi_pseudocount}"
+        )
+    else:
+        raise ValueError(f"Unsupported --pi mode: {options.pi}")
 
     if options.diagnostic_fixed_params:
         from .sample import evaluate_fixed_params

@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import optax
 
 from tombombadil.__main__ import configure_jax_for_options
+from tombombadil.__main__ import estimate_pi_from_counts
 from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
 from tombombadil.sample import _optimize_params
@@ -21,6 +22,65 @@ from tombombadil.sample import summarize_posterior_samples
 from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
 from tombombadil.__main__ import count_codons
+
+class TestEstimatePiFromCounts(unittest.TestCase):
+    def test_estimated_pi_sums_to_one(self):
+        X = np.zeros((61, 2), dtype=int)
+        X[0, 0] = 3
+        X[1, 0] = 1
+        X[2, 1] = 2
+
+        pi = estimate_pi_from_counts(X, pseudocount=0.5)
+
+        self.assertEqual((61,), pi.shape)
+        self.assertAlmostEqual(1.0, pi.sum(), places=12)
+        self.assertTrue(np.all(pi > 0))
+        self.assertGreater(pi[0], pi[1])
+        self.assertGreater(pi[1], pi[3])
+
+    def test_zero_count_codons_get_pseudocount_probability(self):
+        X = np.zeros((61, 1), dtype=int)
+        X[0, 0] = 10
+
+        pi = estimate_pi_from_counts(X, pseudocount=0.5)
+
+        self.assertTrue(np.all(pi > 0))
+        self.assertGreater(pi[0], pi[1])
+
+    def test_zero_pseudocount_rejects_zero_probabilities(self):
+        X = np.zeros((61, 1), dtype=int)
+        X[0, 0] = 10
+
+        with self.assertRaises(ValueError):
+            estimate_pi_from_counts(X, pseudocount=0)
+
+    def test_negative_pseudocount_rejected(self):
+        X = np.ones((61, 1), dtype=int)
+
+        with self.assertRaises(ValueError):
+            estimate_pi_from_counts(X, pseudocount=-0.1)
+
+
+class TestPiOptions(unittest.TestCase):
+    def test_empirical_pi_options_parse(self):
+        argv = [
+            "tombombadil",
+            "--alignment", "alignment.fasta",
+            "--pi", "empirical",
+            "--pi-pseudocount", "1.25",
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            options = get_options()
+
+        self.assertEqual("empirical", options.pi)
+        self.assertEqual(1.25, options.pi_pseudocount)
+
+    def test_invalid_pi_option_rejected(self):
+        argv = ["tombombadil", "--alignment", "alignment.fasta", "--pi", "bad"]
+        with mock.patch.object(sys, "argv", argv):
+            with self.assertRaises(SystemExit):
+                get_options()
+
 
 # a test for calculating the likelihood (fn) for one codon
 # run via python -m unittest -v test.test_fn.Testdiv

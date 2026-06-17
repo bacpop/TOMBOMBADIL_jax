@@ -31,6 +31,13 @@ python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warm
 
 # More options
 --convergence-tol x default=1e-6
+
 --sample-it x number of sampling steps
+
 --platform gpu/cpu/tpu
+
 --cpus x default=8 number of cpus
+
+--pi uniform/empirical default=uniform codon equilibrium frequencies
+
+--pi-pseudocount x default=0.5 pseudocount for empirical codon frequencies
