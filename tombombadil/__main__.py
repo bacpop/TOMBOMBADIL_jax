@@ -2,11 +2,10 @@
 
 import logging
 import gzip
+import os
 import numpy as np
-import jax.numpy as jnp
 
 from .__init__ import __version__
-from .sample import run_sampler
 from .domains import parse_domain_json
 
 # expected order
@@ -72,8 +71,29 @@ def get_options():
                              'at those sites. By default invariant sites are included and the prior '
                              'regularises their omega estimates.')
     mGroup.add_argument('--output-jax', type=str, default=None, metavar='STEM',
-                        help='Save MAP estimates to CSV. Writes STEM_omega.csv (per-site omega) and '
-                             'STEM_scalar.csv (GTR/regression parameters). Default: do not save.')
+                        help='Save MAP estimates or NUTS outputs to CSV. Default: do not save.')
+    mGroup.add_argument('--fit-method', choices=['map', 'nuts'], default='map',
+                        help='Fit with MAP optimisation or BlackJAX NUTS sampling (default: map).')
+    mGroup.add_argument('--fit-until-convergence', action='store_true', default=False,
+                        help='Stop optimisation early when the objective stops improving.')
+    mGroup.add_argument('--convergence-tol', type=float, default=1e-6,
+                        help='Minimum objective improvement counted as progress (default: 1e-6).')
+    mGroup.add_argument('--convergence-patience', type=int, default=5,
+                        help='Number of convergence checks without progress before stopping (default: 5).')
+    mGroup.add_argument('--convergence-check-every', type=int, default=10,
+                        help='Check convergence every N optimiser steps (default: 10).')
+    mGroup.add_argument('--convergence-min-steps', type=int, default=50,
+                        help='Minimum optimiser steps before convergence can stop fitting (default: 50).')
+    mGroup.add_argument('--num-warmup', type=int, default=1000,
+                        help='Number of BlackJAX NUTS warmup steps per chain (default: 1000).')
+    mGroup.add_argument('--num-samples', type=int, default=1000,
+                        help='Number of BlackJAX NUTS posterior draws per chain (default: 1000).')
+    mGroup.add_argument('--num-chains', type=int, default=4,
+                        help='Number of BlackJAX NUTS chains (default: 4).')
+    mGroup.add_argument('--rng-seed', type=int, default=0,
+                        help='Random seed for BlackJAX NUTS (default: 0).')
+    mGroup.add_argument('--target-acceptance-rate', type=float, default=0.8,
+                        help='Target acceptance rate for BlackJAX window adaptation (default: 0.8).')
 
     sGroup = parser.add_argument_group('Sampling options')
     sGroup.add_argument('--sample-it', type=int, default=500,
@@ -84,6 +104,9 @@ def get_options():
                         help='Which hardware/device to run on')
     sGroup.add_argument('--cpus', type=int, default=8,
                         help='Number of CPU cores to use')
+    sGroup.add_argument('--nuts-chain-mode', choices=['sequential', 'pmap'], default='sequential',
+                        help='Run NUTS chains sequentially or in parallel across JAX devices '
+                             '(default: sequential).')
 
     other = parser.add_argument_group('Other options')
     other.add_argument('--version', action='version',
@@ -91,6 +114,20 @@ def get_options():
 
     args = parser.parse_args()
     return args
+
+
+def configure_jax_for_options(options):
+    """Set JAX process flags that must exist before JAX is imported."""
+    if (
+        options.fit_method == "nuts"
+        and options.nuts_chain_mode == "pmap"
+        and options.platform == "cpu"
+    ):
+        cpu_devices = max(int(options.cpus), 1)
+        flag = f"--xla_force_host_platform_device_count={cpu_devices}"
+        existing = os.environ.get("XLA_FLAGS", "")
+        if "--xla_force_host_platform_device_count" not in existing:
+            os.environ["XLA_FLAGS"] = f"{existing} {flag}".strip()
 
 def read_fasta(fp):
     name, seq = None, []
@@ -158,6 +195,10 @@ def main():
         force=True)
 
     options = get_options()
+    configure_jax_for_options(options)
+
+    from .sample import run_sampler
+
     logging.info("Reading alignment...")
     X, n_samples = count_codons(options.alignment)
     logging.info(f"Read {n_samples} samples and {X.shape[1]} codons")
@@ -183,7 +224,19 @@ def main():
                 estimate_uncertainty=options.estimate_uncertainty,
                 fit_replicates=options.fit_replicates,
                 include_invariant=not options.exclude_invariant,
-                output=options.output_jax)
+                output=options.output_jax,
+                fit_method=options.fit_method,
+                fit_until_convergence=options.fit_until_convergence,
+                convergence_tol=options.convergence_tol,
+                convergence_patience=options.convergence_patience,
+                convergence_check_every=options.convergence_check_every,
+                convergence_min_steps=options.convergence_min_steps,
+                num_warmup=options.num_warmup,
+                num_samples=options.num_samples,
+                num_chains=options.num_chains,
+                rng_seed=options.rng_seed,
+                target_acceptance_rate=options.target_acceptance_rate,
+                nuts_chain_mode=options.nuts_chain_mode)
 
 if __name__ == "__main__":
     main()

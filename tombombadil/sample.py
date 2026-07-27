@@ -10,6 +10,7 @@ import jax.scipy.stats as stats
 import jax.scipy.special as special
 from jax.scipy.special import gammaln
 import optax
+import blackjax
 from jax import jit
 from jax.flatten_util import ravel_pytree
 jax.config.update('jax_enable_x64', True)
@@ -17,6 +18,10 @@ import matplotlib.pyplot as plt
 
 from .gtr import build_GTR
 from .likelihood import gen_alpha
+
+SCALAR_PARAM_KEYS = ["alpha", "beta", "gamma", "delta", "epsilon", "theta"]
+SCALAR_PARAM_KEYS_WITH_ETA = SCALAR_PARAM_KEYS + ["eta"]
+_REGRESSION_KEYS = {"alpha_reg", "beta_reg", "log_sigma"}
 
 @jit
 def my_dirichlet_multinomial_logpmf(x, a):
@@ -130,6 +135,45 @@ def softplus_inverse(y, eps=1e-6): # inverse transformation for calculating raw
     z = y - eps
     #z = y
     return jnp.log((z))
+
+
+def natural_to_raw_params(params):
+    """Convert positive natural-scale parameters to raw log space."""
+    raw = {}
+    for key, value in params.items():
+        if key == "omega":
+            raw[key] = jnp.log(jnp.asarray(value) - 1e-6)
+        elif key in _REGRESSION_KEYS:
+            raw[key] = jnp.asarray(value, dtype=jnp.float64)
+        else:
+            raw[key] = jnp.array(softplus_inverse(value), dtype=jnp.float64)
+    return raw
+
+
+def make_mask(X):
+    col_max = np.max(X, axis=0)
+    col_sum = np.sum(X, axis=0)
+    return np.where(col_max == col_sum, 0, 1)
+
+
+def make_base_params(n_sites, estimate_eta=False):
+    """Build default raw initial parameters."""
+    params = {
+        "alpha": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "beta": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "gamma": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "delta": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "epsilon": jnp.array(softplus_inverse(1), dtype=jnp.float64),
+        "theta": jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
+        "omega": jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float64), n_sites),
+    }
+    if estimate_eta:
+        params["eta"] = jnp.array(softplus_inverse(1), dtype=jnp.float64)
+    return params
+
+
+def make_param_labels(params):
+    return {k: ("vec" if k == "omega" else "scalar") for k in params}
     
 def regression_log_likelihood(raw_x, is_extracellular, regression_mask):
     """Hierarchical regression log-likelihood on log(omega).
@@ -150,7 +194,11 @@ def regression_log_likelihood(raw_x, is_extracellular, regression_mask):
     return jnp.sum(per_site * regression_mask) / jnp.sum(regression_mask)
 
 
-def prior_log_likelihood(raw_x, n_sites):
+def _log_transform_jacobian(raw_value):
+    return raw_value
+
+
+def prior_log_likelihood(raw_x, n_sites, prior_mode="current", estimate_eta=False):
     """Log prior contributions for MAP regularisation.
 
     The data log-likelihood is mean-aggregated over sites (mean(losses)), which
@@ -158,25 +206,21 @@ def prior_log_likelihood(raw_x, n_sites):
     the true Bayesian posterior Σᵢ log P(Dᵢ | θ) + log P(θ), every prior term
     must enter with the same 1/n_sites weighting.
 
-    omega:     LogNormal(log(0.5), 1) — per-site prior. jnp.mean over sites is
-               already the correct (1/n_sites)-weighted form for the mean-loss.
-    GTR rates: Half-normal matching Stan's std_normal() T[0,]. These are global
-               (one prior per parameter, not per site), so we explicitly divide
-               the summed log-prior by n_sites to put it at the same effective
-               weight as one per-site quantity. Without this division the prior
-               is n_sites times too strong relative to the data, which over-
-               shrinks weakly-identified rates toward 0.
-               eta is fixed to 1.0 (not sampled) to remove the global GTR-scale
-               ambiguity, so it is excluded from the prior.
-    theta:     Half-normal, same form as the GTR rates but NOT divided by n_sites.
-               theta is a global mutation rate scalar that scales the overall branch
-               length; its prior is intentionally kept at full strength.
+    ``prior_mode`` mirrors the later scalar-omega branch:
+    - ``current``: keep the existing branch behaviour.
+    - ``none``: disable all priors.
+    - ``stan_constrained`` / ``stan_unconstrained``: retained for compatibility.
     """
+
+    if prior_mode == "none":
+        return jnp.array(0.0, dtype=jnp.float64)
 
     omega = positive(raw_x["omega"])
     omega_prior = jnp.mean(jax.scipy.stats.norm.logpdf(jnp.log(omega), jnp.log(0.5), 1.0))
 
     gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon"]
+    if estimate_eta and "eta" in raw_x:
+        gtr_keys.append("eta")
     gtr_prior = jnp.sum(jnp.array([jax.scipy.stats.norm.logpdf(positive(raw_x[k]), 0.0, 1.0)
                                     for k in gtr_keys]))
     theta_prior = jax.scipy.stats.norm.logpdf(positive(raw_x["theta"]), 0.0, 1.0)
@@ -184,43 +228,59 @@ def prior_log_likelihood(raw_x, n_sites):
     return omega_prior + gtr_prior / n_sites + theta_prior
 
 
-def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=None, regression_mask=None, regression_weight=0.1, include_invariant=True): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
+def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
+            is_extracellular=None, regression_mask=None, regression_weight=0.1,
+            include_invariant=True, aggregate="mean", prior_mode="none",
+            estimate_eta=False, eigen_jitter=True, omega_floor=True):
+    # closure for defining fn (this change is mainly for making the unit testing
+    # easier, before it was a closure in run_sampler())
     batched_loss = jax.vmap(
         model,
-        in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, 1)  # map over matrices + data
+        in_axes=(None, None, None, None, None, None, None, 0, None, None, None, None, None, 1)
     )
     def f(raw_x):
-
-        #x = jnp.exp(x)
-        #print('x: ',x)
-        #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
-        #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         x = jax.tree.map(positive, raw_x)
 
+        omega = x["omega"]
+        if jnp.ndim(omega) == 0:
+            omega = jnp.repeat(omega, X.shape[1])
+
         if not include_invariant:
-            x["omega"] = jnp.where( # stops gradient for sites without diversity
+            omega = jnp.where(
                 mask == 1,
-                x["omega"],
-                jax.lax.stop_gradient(x["omega"])
+                omega,
+                jax.lax.stop_gradient(omega)
             )
 
-        x["omega"] = jnp.where( # stops gradients for omegas <= 0.01
-            x["omega"] > 0.01,
-            x["omega"],
-            jax.lax.stop_gradient(x["omega"])
+        if omega_floor:
+            omega = jnp.where(
+                omega > 0.01,
+                omega,
+                jax.lax.stop_gradient(omega)
+            )
+
+        eta = x["eta"] if estimate_eta and "eta" in x else jnp.array(1.0, dtype=jnp.float64)
+        losses = batched_loss(
+            x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"],
+            eta, x["theta"], omega, pi_eq, log_pi, pimat, pimatinv, pimult, X
         )
-
-
-        # eta is fixed to 1.0 (no longer sampled) to identify the global GTR rate scale.
-        eta_fixed = jnp.array(1.0, dtype=jnp.float64)
-        losses = batched_loss(x["alpha"], x["beta"], x["gamma"], x["delta"], x["epsilon"], eta_fixed, x["theta"], x["omega"], pi_eq, log_pi, pimat, pimatinv, pimult, X)
-        #print('losses: ',losses)
         if include_invariant:
-            total = jnp.mean(losses)
+            selected_losses = losses
         else:
             mask_f = mask.astype(jnp.float64)
-            total = jnp.sum(losses * mask_f) / jnp.maximum(jnp.sum(mask_f), 1.0)
-        total = total + prior_log_likelihood(raw_x, X.shape[1])
+            selected_losses = losses * mask_f
+
+        if aggregate == "sum":
+            total = jnp.sum(selected_losses)
+        elif include_invariant:
+            total = jnp.mean(selected_losses)
+        else:
+            mask_f = mask.astype(jnp.float64)
+            total = jnp.sum(selected_losses) / jnp.maximum(jnp.sum(mask_f), 1.0)
+
+        total = total + prior_log_likelihood(
+            raw_x, X.shape[1], prior_mode=prior_mode, estimate_eta=estimate_eta
+        )
         if is_extracellular is not None:
             # regression_weight controls how strongly the regression term influences omega
             # relative to the data likelihood. Values < 1 prevent the regression from
@@ -230,21 +290,59 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, is_extracellular=No
     return f
 
 
-def _optimize_params(fn, params, solver, n_iter, verbose=True):
-    """Run the optimization loop and return final params."""
+def _optimize_params(fn, params, solver, n_iter, verbose=True, convergence=None):
+    """Run the optimization loop and return final params plus convergence metadata."""
     loss_fn = lambda p: -fn(p)
     opt_state = solver.init(params)
-    for _ in range(n_iter):
+    use_convergence = convergence is not None and convergence.get("enabled", False)
+    check_every = max(int(convergence.get("check_every", 1)), 1) if use_convergence else 1
+    patience = max(int(convergence.get("patience", 1)), 1) if use_convergence else 1
+    min_steps = max(int(convergence.get("min_steps", 0)), 0) if use_convergence else 0
+    tol = float(convergence.get("tol", 0.0)) if use_convergence else 0.0
+
+    best_params = params
+    best_objective = float(fn(params)) if use_convergence else None
+    stale_checks = 0
+    converged = False
+    steps_run = 0
+
+    for step in range(1, n_iter + 1):
         grad = jax.grad(loss_fn)(params)
         updates, opt_state = solver.update(grad, opt_state, params)
         params = optax.apply_updates(params, updates)
+        steps_run = step
         if verbose:
             print('parameters: ', jax.tree.map(positive, jnp.array([
                 params["alpha"], params["beta"], params["gamma"],
                 params["delta"], params["epsilon"], params["theta"]
             ])))
             print('omegas: ', jax.tree.map(positive, params["omega"]))
-    return params
+
+        if use_convergence and step % check_every == 0:
+            current_objective = float(fn(params))
+            improvement = current_objective - best_objective
+            if current_objective > best_objective:
+                best_objective = current_objective
+                best_params = params
+            if step >= min_steps:
+                if improvement <= tol:
+                    stale_checks += 1
+                else:
+                    stale_checks = 0
+                if stale_checks >= patience:
+                    converged = True
+                    break
+
+    if not use_convergence:
+        best_params = params
+        best_objective = float(fn(params))
+
+    return {
+        "params": best_params,
+        "n_steps": steps_run,
+        "objective": best_objective,
+        "converged": converged,
+    }
 
 
 def plot_regression(params, is_extracellular, is_imputed, regression_mask):
@@ -376,9 +474,6 @@ def plot_domain_comparison(omega_baseline, omega_domain, is_extracellular, is_im
     plt.tight_layout()
     return fig, ax
 
-_REGRESSION_KEYS = {"alpha_reg", "beta_reg", "log_sigma"}
-
-
 def compute_laplace_se(fn, params):
     """Diagonal Laplace approximation: per-parameter standard errors at the MAP.
 
@@ -481,6 +576,8 @@ def save_params(output_stem: str, params: dict, mask: np.ndarray) -> None:
     scalar_path = output_stem + "_scalar.csv"
 
     omega = np.array(positive(params["omega"]))
+    if omega.ndim == 0:
+        omega = np.repeat(omega, len(mask))
     with open(omega_path, "w", newline="") as f:
         w = _csv.writer(f)
         w.writerow(["site", "omega_map", "variant"])
@@ -503,6 +600,223 @@ def save_params(output_stem: str, params: dict, mask: np.ndarray) -> None:
     logging.info("Saved scalar parameters to: %s", scalar_path)
 
 
+def _posterior_draws_natural(raw_samples):
+    natural = {}
+    for k, v in raw_samples.items():
+        if k in _REGRESSION_KEYS:
+            natural[k] = v
+        else:
+            natural[k] = positive(v)
+    return natural
+
+
+def summarize_posterior_samples(raw_samples, infos):
+    """Summarize posterior samples and BlackJAX diagnostics on natural scale."""
+    samples = _posterior_draws_natural(raw_samples)
+    summaries = {}
+    for k, vals in samples.items():
+        arr = np.asarray(vals)
+        flat = arr.reshape(-1)
+        summaries[k] = {
+            "mean": float(np.mean(flat)),
+            "sd": float(np.std(flat, ddof=1)) if flat.size > 1 else 0.0,
+            "median": float(np.quantile(flat, 0.5)),
+            "q2.5": float(np.quantile(flat, 0.025)),
+            "q25": float(np.quantile(flat, 0.25)),
+            "q75": float(np.quantile(flat, 0.75)),
+            "q97.5": float(np.quantile(flat, 0.975)),
+            "ess": float(np.mean(blackjax.ess(vals))),
+            "rhat": float(np.mean(blackjax.rhat(vals))) if arr.shape[0] > 1 else np.nan,
+        }
+
+    diagnostics = {
+        "mean_acceptance_rate": float(jnp.mean(infos["acceptance_rate"])),
+        "n_divergent": int(jnp.sum(infos["is_divergent"])),
+    }
+    return samples, summaries, diagnostics
+
+
+def save_posterior_outputs(output_stem, raw_samples, summaries):
+    """Save posterior draws and scalar summaries to CSV files."""
+    samples = _posterior_draws_natural(raw_samples)
+    keys = list(samples.keys())
+    samples_path = output_stem + "_posterior_samples.csv"
+    with open(samples_path, "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["chain", "draw"] + keys)
+        n_chains, n_draws = np.asarray(samples[keys[0]]).shape[:2]
+        for chain in range(n_chains):
+            for draw in range(n_draws):
+                row = [chain, draw]
+                for k in keys:
+                    value = np.asarray(samples[k][chain, draw])
+                    row.append(value.tolist() if value.ndim else float(value))
+                w.writerow(row)
+
+    summary_path = output_stem + "_posterior_summary.csv"
+    with open(summary_path, "w", newline="") as f:
+        w = _csv.writer(f)
+        fields = ["variable", "mean", "sd", "median", "q2.5", "q25", "q75", "q97.5", "ess", "rhat"]
+        w.writerow(fields)
+        for k in keys:
+            row = summaries[k]
+            w.writerow([k] + [row[field] for field in fields[1:]])
+
+    logging.info("Saved posterior samples to: %s", samples_path)
+    logging.info("Saved posterior summary to: %s", summary_path)
+
+
+def _save_nuts_point_estimates(output_stem, samples, mask):
+    """Write posterior mean estimates in the same CSV shape as MAP output."""
+    mean_params = {}
+    for key, value in samples.items():
+        mean = jnp.mean(value, axis=(0, 1))
+        if key in _REGRESSION_KEYS:
+            mean_params[key] = mean
+        else:
+            mean_params[key] = jnp.log(jnp.maximum(mean - 1e-6, 1e-12))
+    save_params(output_stem, mean_params, mask)
+
+
+def _sample_blackjax_chain(logdensity_fn, initial_position, rng_key, num_warmup,
+                           num_samples, target_acceptance_rate):
+    """Warm up and sample one NUTS chain with BlackJAX."""
+    warmup = blackjax.window_adaptation(
+        blackjax.nuts,
+        logdensity_fn,
+        target_acceptance_rate=target_acceptance_rate,
+    )
+    warmup_key, sample_key = jax.random.split(rng_key)
+    (state, parameters), _ = warmup.run(warmup_key, initial_position, num_steps=num_warmup)
+    kernel = blackjax.nuts(logdensity_fn, **parameters).step
+
+    @jax.jit
+    def one_step(current_state, step_key):
+        new_state, info = kernel(step_key, current_state)
+        sample_info = {
+            "acceptance_rate": info.acceptance_rate,
+            "is_divergent": info.is_divergent,
+        }
+        return new_state, (new_state.position, sample_info)
+
+    sample_keys = jax.random.split(sample_key, num_samples)
+    _, (positions, infos) = jax.lax.scan(one_step, state, sample_keys)
+    return positions, infos, parameters
+
+
+def _sample_blackjax_chains_pmap(logdensity_fn, initial_positions, rng_keys,
+                                 num_warmup, num_samples,
+                                 target_acceptance_rate):
+    """Warm up and sample NUTS chains in parallel across JAX devices."""
+    num_chains = int(rng_keys.shape[0])
+    n_devices = jax.local_device_count()
+    if num_chains > n_devices:
+        raise ValueError(
+            f"Requested {num_chains} pmap NUTS chain(s), but JAX sees only "
+            f"{n_devices} local device(s). On CPU, run through the CLI with "
+            f"--nuts-chain-mode pmap --cpus {num_chains} before JAX is imported, "
+            "or use --nuts-chain-mode sequential."
+        )
+
+    def run_chain(initial_position, rng_key):
+        return _sample_blackjax_chain(
+            logdensity_fn,
+            initial_position,
+            rng_key,
+            num_warmup,
+            num_samples,
+            target_acceptance_rate,
+        )
+
+    return jax.pmap(run_chain)(initial_positions, rng_keys)
+
+
+def _stack_chain_pytrees(chain_pytrees):
+    return jax.tree.map(lambda *xs: jnp.stack(xs), *chain_pytrees)
+
+
+def run_nuts_sampler(fn, start_params, num_warmup=1000, num_samples=1000,
+                     num_chains=4, rng_seed=0, target_acceptance_rate=0.8,
+                     output=None, print_summary=True,
+                     chain_mode="sequential", mask=None):
+    """Run BlackJAX NUTS from raw unconstrained starting parameters."""
+    if chain_mode not in ("sequential", "pmap"):
+        raise ValueError(f"Unknown NUTS chain mode: {chain_mode}")
+
+    rng_key = jax.random.PRNGKey(rng_seed)
+    chain_keys = jax.random.split(rng_key, num_chains)
+    initial_positions = []
+    for chain in range(num_chains):
+        if chain == 0:
+            initial_positions.append(start_params)
+        else:
+            initial_positions.append(_perturb_params(start_params))
+
+    if chain_mode == "pmap":
+        logging.info(
+            "Running %s BlackJAX NUTS chain(s) with pmap across %s local JAX device(s)",
+            num_chains, jax.local_device_count(),
+        )
+        stacked_initial_positions = _stack_chain_pytrees(initial_positions)
+        raw_samples, infos, adapted_parameters = _sample_blackjax_chains_pmap(
+            fn,
+            stacked_initial_positions,
+            chain_keys,
+            num_warmup,
+            num_samples,
+            target_acceptance_rate,
+        )
+        adapted_parameters = [adapted_parameters]
+    else:
+        chain_positions = []
+        chain_infos = []
+        adapted_parameters = []
+        for chain in range(num_chains):
+            logging.info("Running BlackJAX NUTS chain %s/%s", chain + 1, num_chains)
+            positions, infos, parameters = _sample_blackjax_chain(
+                fn,
+                initial_positions[chain],
+                chain_keys[chain],
+                num_warmup,
+                num_samples,
+                target_acceptance_rate,
+            )
+            chain_positions.append(positions)
+            chain_infos.append(infos)
+            adapted_parameters.append(parameters)
+
+        raw_samples = _stack_chain_pytrees(chain_positions)
+        infos = _stack_chain_pytrees(chain_infos)
+
+    natural_samples, summaries, diagnostics = summarize_posterior_samples(raw_samples, infos)
+    if print_summary:
+        print("\n--- BlackJAX NUTS posterior summary (natural scale) ---")
+        for k, s in summaries.items():
+            print(
+                f"  {k:12s}: mean={s['mean']:.4f}, median={s['median']:.4f}, "
+                f"95% CI=({s['q2.5']:.4f}, {s['q97.5']:.4f}), "
+                f"ESS={s['ess']:.1f}, R-hat={s['rhat']:.4f}"
+            )
+        print(
+            f"Diagnostics: mean acceptance={diagnostics['mean_acceptance_rate']:.4f}, "
+            f"divergences={diagnostics['n_divergent']}"
+        )
+        print("------------------------------------------------------\n")
+    if output is not None:
+        save_posterior_outputs(output, raw_samples, summaries)
+        if mask is not None:
+            _save_nuts_point_estimates(output, natural_samples, mask)
+
+    return {
+        "raw_samples": raw_samples,
+        "samples": natural_samples,
+        "summaries": summaries,
+        "diagnostics": diagnostics,
+        "infos": infos,
+        "adapted_parameters": adapted_parameters,
+    }
+
+
 def _perturb_params(params, scale=0.5):
     """Add Normal(0, scale) noise to all parameters in raw (unconstrained) space."""
     key = jax.random.PRNGKey(int(np.random.randint(0, 2**31)))
@@ -511,7 +825,7 @@ def _perturb_params(params, scale=0.5):
     return unflatten(flat + noise)
 
 
-def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100):
+def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100, convergence=None):
     """Run the optimizer n_reps times and return all results plus the index of the best.
 
     Replicate 0 uses the unperturbed starting point; subsequent replicates add
@@ -539,11 +853,16 @@ def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100):
             {"vec": optax.adam(schedule), "scalar": optax.adam(schedule)},
             param_labels=param_labels,
         )
-        params_rep = _optimize_params(fn, start, solver, n_iter, verbose=False)
-        ll = float(fn(params_rep))
+        result = _optimize_params(fn, start, solver, n_iter, verbose=False, convergence=convergence)
+        params_rep = result["params"]
+        ll = result["objective"]
         all_params.append(params_rep)
         all_lls.append(ll)
-        logging.info(f"  Replicate {rep + 1}/{n_reps}: log-likelihood = {ll:.4f}")
+        status = "converged" if result["converged"] else "max steps"
+        logging.info(
+            f"  Replicate {rep + 1}/{n_reps}: log-likelihood = {ll:.4f}; "
+            f"steps = {result['n_steps']}; status = {status}"
+        )
     best_idx = int(np.argmax(all_lls))
     logging.info(f"Best replicate: {best_idx + 1} (log-likelihood = {all_lls[best_idx]:.4f})")
     return all_params, best_idx
@@ -701,106 +1020,90 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 is_extracellular=None, is_imputed=None, regression_mask=None,
                 regression_weight=0.1, only_colour_domains=False,
                 estimate_uncertainty=False, fit_replicates=1,
-                include_invariant=True, output=None):
+                include_invariant=True, output=None, aggregate="mean",
+                prior_mode="current", estimate_eta=False, eigen_jitter=True,
+                omega_floor=True, fit_until_convergence=False,
+                convergence_tol=1e-6, convergence_patience=5,
+                convergence_check_every=10, convergence_min_steps=50,
+                fit_method="map", num_warmup=1000, num_samples=1000,
+                num_chains=4, rng_seed=0, target_acceptance_rate=0.8,
+                nuts_chain_mode="sequential"):
     logging.info("Precomputing transforms...")
-    #col = 30 # site in the alignment
-    col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
-    # add for loop later
-    #X[:,7] = jnp.zeros(61)
-    #X[:,7] = np.zeros(61)
-    #X[15,7] = 4
-    #X[47,7] = 19
-    #X[15,7] = 4
-    #X[47,7] = 19
-    #X = np.zeros((61,1))
-    #X[15,:] = 4
-    #X[47,:] = 19
-    #col = 0
-    #X = np.zeros((61,10))
-    #X[15,:] = 4
-    #X[47,:] = 19
-    #col = 0
-    #X = np.array(X[:,11:16]) # found some diversity in these columns
-    #X = np.array(X[:,11:18]) # found some diversity in these columns, and last column has no diversity
-    #X = np.array(X[:,7:18]) # found some diversity in these columns, and last column has no diversity # position 9 is problematic has 5x one codon, 18x another, which corresponds to nonsyn mutation I think (so dS = 0)
-    #X = np.array(X[:,9:10])
-    #X = np.array(X[:,7:8])
-    # probably need exceptions for these cases?
-    #print("X shape",X.shape)
-    # I think there's a problem with the function reading in the data (the order of the codons)
-    """ X = np.zeros((61,5))
-    X[9,0] = 5
-    X[22,0] = 18
-    X[24,1] = 5
-    X[37,1] = 17
-    X[55,1] = 1
-    X[38,2] = 1 # 39  55  60 
-    X[54,2] = 5
-    X[59,2] = 17
-    X[49,3] = 8 # 50  58  59 
-    X[57,3] = 13
-    X[58,3] = 2
-    X[23,4] = 5 # 24  25  40
-    X[24,4] = 17
-    X[39,4] = 1
-    X = np.array(X[:,1:4]) """
-    #X = np.array(X[:,10:11]) # this one for example behaves like it has found stop codons, where actually there should be 17x of AAT
-    # it should be (based on stan code)
-    #X = np.zeros((61,1))
-    #X[24,0] = 5
-    #X[37,0] = 17
-    #X[55,0] = 1
-    #X = np.zeros((61,1))
-    #X[9,0] = 5
-    #X[22,0] = 18
-    #X = np.array(X[:,10:14])
-    #X = np.array(X[:,0:15])
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
-    # l is length of alignment
-    #print("X",X)
-    #print("sum X", np.sum(X))
-    #print("larger zero", np.where(X > 0))
-
-    # calculate mask for masking parts of the alignment where there is no diversity
-    # this will allow using these position for calculating gradient for constant parameters but excludes omega calculation for these positions
-    col_max = np.max(X, axis=0) # finds maximum value per column in X
-    col_sum = np.sum(X, axis=0) # calculates column sum
-    mask = np.where(col_max == col_sum, 0, 1) # create mask for positions without diversity
-    #print("col_max",col_max)
-    #print("col_sum",col_sum)
-    #print("mask",mask)
-    #mask = mask.at[0].set(0.0)
-    #mask2 = mask ==1
-    #print("mask where",mask2)
-    #X = X[:,mask2] # this could be an alternative, where I filter X by positions that show diversity
-    #print("X",X)
-    #log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
+    mask = make_mask(X)
     logging.info("Compiling model...")
 
-    # Base params and labels shared by both runs
-    # eta is fixed to 1.0 inside make_fn(); it is intentionally not part of the
-    # sampled parameter set so the global GTR rate scale is identified.
-    base_params = {
-        "alpha":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "beta":    jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "gamma":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "delta":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "epsilon": jnp.array(softplus_inverse(1),   dtype=jnp.float64),
-        "theta":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
-        "omega":   jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float64), jnp.size(X, axis=1)),
-    }
-    base_labels = {
-        "omega": "vec", "alpha": "scalar", "beta": "scalar", "gamma": "scalar",
-        "delta": "scalar", "epsilon": "scalar", "theta": "scalar",
-    }
+    base_params = make_base_params(X.shape[1], estimate_eta=estimate_eta)
+    base_labels = make_param_labels(base_params)
+
+    if is_extracellular is not None:
+        is_extracellular = jnp.array(is_extracellular, dtype=jnp.float64)
+        regression_mask = jnp.array(regression_mask, dtype=jnp.float64)
+
+    def make_standard_fn():
+        return make_fn(
+            pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
+            include_invariant=include_invariant,
+            aggregate=aggregate,
+            prior_mode=prior_mode,
+            estimate_eta=estimate_eta,
+            eigen_jitter=eigen_jitter,
+            omega_floor=omega_floor,
+        )
+
+    def make_domain_fn():
+        return make_fn(
+            pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
+            is_extracellular, regression_mask, regression_weight,
+            include_invariant=include_invariant,
+            aggregate=aggregate,
+            prior_mode=prior_mode,
+            estimate_eta=estimate_eta,
+            eigen_jitter=eigen_jitter,
+            omega_floor=omega_floor,
+        )
+
+    if fit_method == "nuts":
+        fn = make_domain_fn() if is_extracellular is not None else make_standard_fn()
+        if only_colour_domains:
+            logging.warning("--only-colour-domains is ignored with --fit-method nuts")
+        logging.info(
+            "Running BlackJAX NUTS — %s chain(s), %s warmup step(s), %s draw(s)",
+            num_chains, num_warmup, num_samples,
+        )
+        return run_nuts_sampler(
+            fn,
+            base_params,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=num_chains,
+            rng_seed=rng_seed,
+            target_acceptance_rate=target_acceptance_rate,
+            output=output,
+            chain_mode=nuts_chain_mode,
+            mask=mask,
+        )
+
+    convergence = None
+    if fit_until_convergence:
+        convergence = {
+            "enabled": True,
+            "tol": convergence_tol,
+            "patience": convergence_patience,
+            "check_every": convergence_check_every,
+            "min_steps": convergence_min_steps,
+        }
 
     if only_colour_domains and is_extracellular is not None:
-        # Run standard model (no regression), then show domain-coloured plot
-        logging.info(f"Running optimization (no regression, domain colours only) — {fit_replicates} replicate(s)...")
-        fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
-        all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates, n_iter=samples)
+        logging.info(
+            "Running optimization (no regression, domain colours only) — %s replicate(s)...",
+            fit_replicates,
+        )
+        fn = make_standard_fn()
+        all_params, best_idx = _run_replicates(
+            fn, base_params, base_labels, fit_replicates, n_iter=samples, convergence=convergence
+        )
         params = all_params[best_idx]
-
         if fit_replicates > 1:
             plot_replicates(all_params, best_idx)
         if estimate_uncertainty:
@@ -816,14 +1119,11 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         return
 
     if is_extracellular is not None:
-        # Convert to JAX arrays
-        is_extracellular = jnp.array(is_extracellular, dtype=jnp.float64)
-        regression_mask  = jnp.array(regression_mask,  dtype=jnp.float64)
-
-        # --- Baseline run (single, silent — used only for the comparison plot) ---
         logging.info("Running baseline optimization (no domain regression)...")
-        fn_baseline = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
-        baseline_all, baseline_best = _run_replicates(fn_baseline, base_params, base_labels, 1, n_iter=samples)
+        fn_baseline = make_standard_fn()
+        baseline_all, baseline_best = _run_replicates(
+            fn_baseline, base_params, base_labels, 1, n_iter=samples, convergence=convergence
+        )
         params_baseline = baseline_all[baseline_best]
         omega_baseline = positive(params_baseline["omega"])
         if estimate_uncertainty:
@@ -831,21 +1131,20 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
             _, se_nat_baseline = compute_laplace_se(fn_baseline, params_baseline)
             _print_laplace_summary(params_baseline, se_nat_baseline)
 
-        # --- Domain-informed run ---
-        logging.info(f"Running optimization with domain regression — {fit_replicates} replicate(s)...")
+        logging.info("Running optimization with domain regression — %s replicate(s)...", fit_replicates)
         domain_params = dict(base_params)
-        domain_params["alpha_reg"] = jnp.array(0.0,           dtype=jnp.float64)
-        domain_params["beta_reg"]  = jnp.array(0.0,           dtype=jnp.float64)
-        domain_params["log_sigma"] = jnp.array(jnp.log(2.0),  dtype=jnp.float64)
+        domain_params["alpha_reg"] = jnp.array(0.0, dtype=jnp.float64)
+        domain_params["beta_reg"] = jnp.array(0.0, dtype=jnp.float64)
+        domain_params["log_sigma"] = jnp.array(jnp.log(2.0), dtype=jnp.float64)
         domain_labels = dict(base_labels)
         domain_labels["alpha_reg"] = "scalar"
-        domain_labels["beta_reg"]  = "scalar"
+        domain_labels["beta_reg"] = "scalar"
         domain_labels["log_sigma"] = "scalar"
 
-        fn_domain = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
-                            is_extracellular, regression_mask, regression_weight,
-                            include_invariant=include_invariant)
-        all_domain_params, best_idx = _run_replicates(fn_domain, domain_params, domain_labels, fit_replicates, n_iter=samples)
+        fn_domain = make_domain_fn()
+        all_domain_params, best_idx = _run_replicates(
+            fn_domain, domain_params, domain_labels, fit_replicates, n_iter=samples, convergence=convergence
+        )
         params = all_domain_params[best_idx]
         omega_domain = positive(params["omega"])
 
@@ -867,10 +1166,9 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
             _, se_nat_domain = compute_laplace_se(fn_domain, params)
             _print_laplace_summary(params, se_nat_domain)
 
-        # Convert is_imputed for plotting (may still be numpy)
         is_imputed_np = np.array(is_imputed, dtype=bool) if is_imputed is not None else np.zeros(len(omega_domain), dtype=bool)
-        is_ext_np     = np.array(is_extracellular)
-        reg_mask_np   = np.array(regression_mask, dtype=bool)
+        is_ext_np = np.array(is_extracellular)
+        reg_mask_np = np.array(regression_mask, dtype=bool)
 
         plot_regression(params, is_ext_np, is_imputed_np, reg_mask_np)
         plot_domain_comparison(omega_baseline, omega_domain, is_ext_np, is_imputed_np, reg_mask_np)
@@ -878,32 +1176,29 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         if output is not None:
             save_params(output, params, mask)
         plt.show()
+        return
 
-    else:
-        # Run without domain regression
-        logging.info(f"Running optimization — {fit_replicates} replicate(s)...")
-        fn = make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask, include_invariant=include_invariant)
-        all_params, best_idx = _run_replicates(fn, base_params, base_labels, fit_replicates, n_iter=samples)
-        params = all_params[best_idx]
+    logging.info("Running optimization — %s replicate(s)...", fit_replicates)
+    fn = make_standard_fn()
+    all_params, best_idx = _run_replicates(
+        fn, base_params, base_labels, fit_replicates, n_iter=samples, convergence=convergence
+    )
+    params = all_params[best_idx]
 
-        loss_fn = lambda p: -fn(p)
-        print('Final likelihood: ', fn(params))
-        print('final parameters: ', jax.tree.map(positive, jnp.array([
-            params["alpha"], params["beta"], params["gamma"],
-            params["delta"], params["epsilon"], params["theta"]
-        ])))
-        print('final omega: ', jax.tree.map(positive, params["omega"]))
-        print('Objective function: ', loss_fn(params))
-        if fit_replicates > 1:
-            plot_replicates(all_params, best_idx)
-        if estimate_uncertainty:
-            logging.info("Computing Laplace uncertainty...")
-            _, se_nat = compute_laplace_se(fn, params)
-            _print_laplace_summary(params, se_nat)
+    loss_fn = lambda p: -fn(p)
+    print('Final likelihood: ', fn(params))
+    print('final parameters: ', jax.tree.map(positive, jnp.array([
+        params["alpha"], params["beta"], params["gamma"],
+        params["delta"], params["epsilon"], params["theta"]
+    ])))
+    print('final omega: ', jax.tree.map(positive, params["omega"]))
+    print('Objective function: ', loss_fn(params))
+    if fit_replicates > 1:
+        plot_replicates(all_params, best_idx)
+    if estimate_uncertainty:
+        logging.info("Computing Laplace uncertainty...")
+        _, se_nat = compute_laplace_se(fn, params)
+        _print_laplace_summary(params, se_nat)
 
-        if output is not None:
-            save_params(output, params, mask)
-        #plt.plot(np.array(positive(params["omega"])), 'o', color='black')
-        #plt.show()
-
-
+    if output is not None:
+        save_params(output, params, mask)

@@ -1,10 +1,21 @@
+import csv
 import unittest # for performing unit tests
+import os
+import sys
+import tempfile
+from unittest import mock
 import numpy as np
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 import tombombadil
+from tombombadil.__main__ import configure_jax_for_options
+from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
+from tombombadil.sample import run_nuts_sampler
+from tombombadil.sample import save_posterior_outputs
+from tombombadil.sample import summarize_posterior_samples
 from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
 from tombombadil.__main__ import count_codons
@@ -294,6 +305,91 @@ class TestRegressionLikelihood(unittest.TestCase):
         def reg_ll(p): return regression_log_likelihood(p, is_extracellular, self._ALL_INCLUDED)
         grads = jax.grad(reg_ll)(params)
         self.assertTrue(jnp.all(grads["omega"] > 0))
+
+
+class TestBlackjaxCli(unittest.TestCase):
+    def test_nuts_flags_parse(self):
+        argv = [
+            "tombombadil",
+            "--alignment", "porB3.carriage.noindels.txt",
+            "--fit-method", "nuts",
+            "--num-warmup", "11",
+            "--num-samples", "12",
+            "--num-chains", "2",
+            "--rng-seed", "9",
+            "--target-acceptance-rate", "0.9",
+            "--nuts-chain-mode", "pmap",
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            options = get_options()
+
+        self.assertEqual(options.fit_method, "nuts")
+        self.assertEqual(options.num_warmup, 11)
+        self.assertEqual(options.num_samples, 12)
+        self.assertEqual(options.num_chains, 2)
+        self.assertEqual(options.rng_seed, 9)
+        self.assertEqual(options.target_acceptance_rate, 0.9)
+        self.assertEqual(options.nuts_chain_mode, "pmap")
+
+    def test_cpu_pmap_configures_jax_host_devices(self):
+        argv = [
+            "tombombadil",
+            "--alignment", "porB3.carriage.noindels.txt",
+            "--fit-method", "nuts",
+            "--nuts-chain-mode", "pmap",
+            "--cpus", "3",
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            options = get_options()
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            configure_jax_for_options(options)
+            self.assertEqual(
+                os.environ["XLA_FLAGS"],
+                "--xla_force_host_platform_device_count=3",
+            )
+
+
+class TestBlackjaxPosterior(unittest.TestCase):
+    def test_run_nuts_sampler_shapes_on_tiny_density(self):
+        fn = lambda p: -0.5 * jnp.square(p["alpha"])
+        start = {"alpha": jnp.array(0.1, dtype=jnp.float64)}
+
+        result = run_nuts_sampler(
+            fn,
+            start,
+            num_warmup=5,
+            num_samples=6,
+            num_chains=2,
+            rng_seed=123,
+            target_acceptance_rate=0.8,
+            print_summary=False,
+        )
+
+        self.assertEqual(result["samples"]["alpha"].shape, (2, 6))
+        self.assertIn("alpha", result["summaries"])
+        self.assertIn("mean_acceptance_rate", result["diagnostics"])
+
+    def test_save_posterior_outputs_writes_samples_and_summary(self):
+        raw_samples = {
+            "alpha": jnp.array([[0.0, 0.1], [0.2, 0.3]], dtype=jnp.float64),
+        }
+        infos = {
+            "acceptance_rate": jnp.ones((2, 2)),
+            "is_divergent": jnp.zeros((2, 2), dtype=bool),
+        }
+        _, summaries, _ = summarize_posterior_samples(raw_samples, infos)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stem = os.path.join(tmp, "fit")
+            save_posterior_outputs(stem, raw_samples, summaries)
+
+            self.assertTrue(os.path.exists(stem + "_posterior_samples.csv"))
+            self.assertTrue(os.path.exists(stem + "_posterior_summary.csv"))
+            with open(stem + "_posterior_summary.csv", newline="") as f:
+                rows = {row["variable"]: row for row in csv.DictReader(f)}
+
+        self.assertIn("alpha", rows)
 
 
 if __name__ == '__main__':

@@ -16,3 +16,14 @@ Work is based on Genomegamap https://doi.org/10.1093/molbev/msaa069
 run using  
 poetry install  
 poetry run python tombombadil-runner.py --alignment porB3.carriage.noindels.txt
+
+BlackJAX NUTS is available through `--fit-method nuts`:
+
+```bash
+python -m tombombadil --alignment alignment.fas.aln --fit-method nuts \
+  --num-warmup 250 --num-samples 500 --num-chains 4 \
+  --nuts-chain-mode sequential --output-jax output
+```
+
+On CPU, `--nuts-chain-mode pmap` requires JAX to see one host device per chain,
+so set `--cpus` before importing JAX.
