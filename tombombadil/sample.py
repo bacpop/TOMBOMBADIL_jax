@@ -1191,6 +1191,9 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         params["alpha"], params["beta"], params["gamma"],
         params["delta"], params["epsilon"], params["theta"]
     ])))
+    print('transition/transversion ratio: ', 
+        ((jax.tree.map(positive,params["beta"]) +jax.tree.map(positive,params["epsilon"]))/(jax.tree.map(positive,params["alpha"]) + jax.tree.map(positive,params["gamma"]) + jax.tree.map(positive,params["delta"]) + 1.0))
+    )
     print('final omega: ', jax.tree.map(positive, params["omega"]))
     print('Objective function: ', loss_fn(params))
     if fit_replicates > 1:
