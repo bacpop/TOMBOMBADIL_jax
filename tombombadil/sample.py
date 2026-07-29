@@ -859,6 +859,12 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
     ])))
     if estimate_eta:
         print('final eta: ', positive(params["eta"]))
+        print('transition/transversion ratio: ', 
+            ((jax.tree.map(positive,params["beta"]) +jax.tree.map(positive,params["epsilon"]))/(jax.tree.map(positive,params["alpha"]) + jax.tree.map(positive,params["gamma"]) + jax.tree.map(positive,params["delta"]) + jax.tree.map(positive,params["eta"])))
+        )
+    print('transition/transversion ratio: ', 
+            ((jax.tree.map(positive,params["beta"]) +jax.tree.map(positive,params["epsilon"]))/(jax.tree.map(positive,params["alpha"]) + jax.tree.map(positive,params["gamma"]) + jax.tree.map(positive,params["delta"]) + 1.0))
+        )
     status = "converged" if best_metadata["converged"] else "reached max steps"
     print(f"Optimization status: {status} after {best_metadata['n_steps']} step(s)")
     print('Objective function: ', loss_fn(params))
