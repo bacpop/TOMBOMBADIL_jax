@@ -15,10 +15,12 @@ from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
 from tombombadil.sample import run_nuts_sampler
 from tombombadil.sample import save_posterior_outputs
+from tombombadil.sample import save_params
 from tombombadil.sample import summarize_posterior_samples
 from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
 from tombombadil.__main__ import count_codons
+from tombombadil.__main__ import plot_codon_proportions
 
 # a test for calculating the likelihood (fn) for one codon, correct value from Stan implementation
 # run via python -m unittest -v test.test_fn.Testdiv
@@ -154,6 +156,22 @@ class Test_codon_count_matrix(unittest.TestCase):
 
         self.assertEqual(expected.shape, observed.shape)
         self.assertTrue((expected == observed).all())
+
+    def test_codon_proportion_plot_writes_pdf_and_normalizes_sites(self):
+        counts = np.zeros((61, 2), dtype=int)
+        counts[0, 0] = 3
+        counts[1, 0] = 1
+        counts[2, 1] = 4
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stem = os.path.join(tmp, "fit")
+            proportions = plot_codon_proportions(counts, 4, stem)
+            output = stem + "_codon_proportions.pdf"
+
+            self.assertTrue(os.path.exists(output))
+            self.assertGreater(os.path.getsize(output), 0)
+
+        np.testing.assert_allclose(proportions.sum(axis=0), [1.0, 1.0])
 
 # Tests for domain parsing and regression
 # run via python -m unittest -v test.test_fn.TestDomainParsing
@@ -351,6 +369,35 @@ class TestBlackjaxCli(unittest.TestCase):
 
 
 class TestBlackjaxPosterior(unittest.TestCase):
+    def test_save_params_writes_omega_csv_and_plot(self):
+        params = {
+            "alpha": jnp.array(0.0),
+            "beta": jnp.array(0.0),
+            "gamma": jnp.array(0.0),
+            "delta": jnp.array(0.0),
+            "epsilon": jnp.array(0.0),
+            "theta": jnp.array(0.0),
+            "omega": jnp.log(jnp.array([0.2, 1.0, 2.0]) - 1e-6),
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stem = os.path.join(tmp, "fit")
+            save_params(stem, params, np.array([0, 1, 1]))
+
+            self.assertTrue(os.path.exists(stem + "_omega.csv"))
+            self.assertTrue(os.path.exists(stem + "_omega_plot.pdf"))
+            self.assertTrue(os.path.exists(stem + "_omega_plot_natural.pdf"))
+            self.assertGreater(os.path.getsize(stem + "_omega_plot.pdf"), 0)
+            self.assertGreater(os.path.getsize(stem + "_omega_plot_natural.pdf"), 0)
+            with open(stem + "_omega.csv", newline="") as f:
+                rows = list(csv.DictReader(f))
+
+        self.assertEqual([row["site"] for row in rows], ["1", "2", "3"])
+        self.assertEqual([row["variant"] for row in rows], ["0", "1", "1"])
+        np.testing.assert_allclose(
+            [float(row["omega_map"]) for row in rows], [0.2, 1.0, 2.0], rtol=1e-6
+        )
+
     def test_run_nuts_sampler_shapes_on_tiny_density(self):
         fn = lambda p: -0.5 * jnp.square(p["alpha"])
         start = {"alpha": jnp.array(0.1, dtype=jnp.float64)}

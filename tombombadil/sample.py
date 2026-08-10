@@ -562,6 +562,44 @@ def _print_laplace_summary(params, se_natural):
     print("----------------------------------------\n")
 
 
+def plot_omega(sites, omega, variant=None, log_scale=True):
+    """Create a per-site omega scatter plot for saved parameter estimates."""
+    sites = np.asarray(sites)
+    omega = np.asarray(omega)
+    fig, ax = plt.subplots(figsize=(16, 4))
+
+    if variant is None:
+        ax.scatter(sites, omega, color="black", s=8, alpha=0.65,
+                   linewidths=0, label="Omega estimate", zorder=3)
+    else:
+        variant = np.asarray(variant)
+        if variant.shape != omega.shape:
+            raise ValueError("Variant mask length does not match omega length")
+        invariant = variant == 0
+        variable = ~invariant
+        if invariant.any():
+            ax.scatter(sites[invariant], omega[invariant], color="lightgrey",
+                       s=7, alpha=0.7, linewidths=0, label="Invariant site",
+                       zorder=2)
+        if variable.any():
+            ax.scatter(sites[variable], omega[variable], color="black",
+                       s=9, alpha=0.75, linewidths=0, label="Variable site",
+                       zorder=3)
+
+    ax.axhline(1.0, color="red", linestyle="--", linewidth=1.1, alpha=0.8,
+               label="omega = 1", zorder=4)
+    if log_scale:
+        ax.set_yscale("log")
+    ax.set_xlabel("Alignment site")
+    ax.set_ylabel("omega (dN/dS, log scale)" if log_scale else "omega (dN/dS)")
+    ax.set_title("Per-site omega estimates" + ("" if log_scale else " (natural scale)"))
+    ax.set_xlim(sites.min() - 1, sites.max() + 1)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), borderaxespad=0,
+              fontsize=8)
+    fig.tight_layout()
+    return fig
+
+
 def save_params(output_stem: str, params: dict, mask: np.ndarray) -> None:
     """Save MAP parameter estimates to two CSV files.
 
@@ -584,6 +622,22 @@ def save_params(output_stem: str, params: dict, mask: np.ndarray) -> None:
         for i, (om, mk) in enumerate(zip(omega, mask), start=1):
             w.writerow([i, float(om), int(mk)])
     logging.info("Saved omega estimates to: %s", omega_path)
+
+    omega_plot_path = output_stem + "_omega_plot.pdf"
+    omega_fig = plot_omega(np.arange(1, len(omega) + 1), omega, mask, log_scale=True)
+    omega_fig.savefig(omega_plot_path, format="pdf", bbox_inches="tight")
+    plt.close(omega_fig)
+    logging.info("Saved omega plot to: %s", omega_plot_path)
+
+    omega_natural_plot_path = output_stem + "_omega_plot_natural.pdf"
+    omega_natural_fig = plot_omega(
+        np.arange(1, len(omega) + 1), omega, mask, log_scale=False
+    )
+    omega_natural_fig.savefig(
+        omega_natural_plot_path, format="pdf", bbox_inches="tight"
+    )
+    plt.close(omega_natural_fig)
+    logging.info("Saved natural-scale omega plot to: %s", omega_natural_plot_path)
 
     scalar_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "theta"]
     rows = [(k, float(positive(params[k]))) for k in scalar_keys if k in params]

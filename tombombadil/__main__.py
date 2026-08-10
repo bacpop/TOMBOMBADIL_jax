@@ -4,6 +4,7 @@ import logging
 import gzip
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 
 from .__init__ import __version__
 from .domains import parse_domain_json
@@ -20,6 +21,10 @@ col_order = np.array([63, 61, 60, 62, 55, 53, 52, 54, 51, 49, 59, 57, 58, 31, 29
                       23, 21, 20, 22, 19, 17, 16, 18, 27, 25, 24, 26, 15, 13, 12, 14,  7,
                        5,  4,  6,  3,  1,  0,  2, 11,  9,  8, 10, 47, 45, 44, 46, 39, 37,
                       36, 38, 35, 33, 32, 34, 43, 41, 40, 42, 48, 50, 56, 64])
+
+CODON_LIST = [a + b + c for a in "TCAG" for b in "TCAG" for c in "TCAG"
+              if a + b + c not in {"TAA", "TAG", "TGA"}]
+assert len(CODON_LIST) == 61
 #stop codons 48 50 56
 #Ns 64
 
@@ -187,6 +192,47 @@ def count_codons(file_name):
 
     return X, n_samples
 
+
+def plot_codon_proportions(X, n_samples, output_stem):
+    """Save per-site codon proportions as a stacked bar plot.
+
+    ``X`` is the 61-by-site count matrix returned by :func:`count_codons`.
+    The output is written to ``{output_stem}_codon_proportions.pdf``.
+    """
+    X = np.asarray(X)
+    if X.ndim != 2 or X.shape[0] != len(CODON_LIST):
+        raise ValueError("X must have shape (61, n_sites)")
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
+
+    proportions = X.astype(float) / float(n_samples)
+    n_sites = X.shape[1]
+    sites = np.arange(1, n_sites + 1)
+    colours = plt.cm.nipy_spectral(np.linspace(0.02, 0.98, len(CODON_LIST)))
+    fig_width = max(14.0, min(36.0, n_sites / 10.0))
+    fig, ax = plt.subplots(figsize=(fig_width, 6))
+    bottom = np.zeros(n_sites, dtype=float)
+
+    for codon, values, colour in zip(CODON_LIST, proportions, colours):
+        ax.bar(sites, values, bottom=bottom, width=1.0, color=colour,
+               edgecolor="none", label=codon)
+        bottom += values
+
+    ax.set_xlabel("Alignment codon position")
+    ax.set_ylabel("Codon proportion")
+    ax.set_title("Codon proportions per alignment position")
+    ax.set_xlim(0.5, n_sites + 0.5)
+    ax.set_ylim(0.0, 1.0)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), ncol=3,
+              fontsize=7, title="Codon")
+    fig.tight_layout()
+
+    output_path = output_stem + "_codon_proportions.pdf"
+    fig.savefig(output_path, format="pdf", bbox_inches="tight")
+    plt.close(fig)
+    logging.info("Saved codon proportion plot to: %s", output_path)
+    return proportions
+
 def main():
     logging.basicConfig(
         format='%(asctime)s %(levelname)-8s %(message)s',
@@ -202,6 +248,8 @@ def main():
     logging.info("Reading alignment...")
     X, n_samples = count_codons(options.alignment)
     logging.info(f"Read {n_samples} samples and {X.shape[1]} codons")
+    if options.output_jax is not None:
+        plot_codon_proportions(X, n_samples, options.output_jax)
 
     #print("X",X.max())
     if options.pi is None:
