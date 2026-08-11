@@ -79,6 +79,14 @@ def get_options():
                         help='Save MAP estimates or NUTS outputs to CSV. Default: do not save.')
     mGroup.add_argument('--fit-method', choices=['map', 'nuts'], default='map',
                         help='Fit with MAP optimisation or BlackJAX NUTS sampling (default: map).')
+    mGroup.add_argument('--objective-aggregate', choices=['mean', 'sum'], default='mean',
+                        help='Aggregate site log-likelihoods by mean or sum (default: mean).')
+    mGroup.add_argument('--prior-mode',
+                        choices=['current', 'none', 'stan_constrained', 'stan_unconstrained'],
+                        default='stan_unconstrained',
+                        help='Prior/Jacobian convention (default: stan_unconstrained).')
+    mGroup.add_argument('--fix-eta', action='store_true', default=False,
+                        help='Fix eta to 1.0 instead of estimating it.')
     mGroup.add_argument('--fit-until-convergence', action='store_true', default=False,
                         help='Stop optimisation early when the objective stops improving.')
     mGroup.add_argument('--convergence-tol', type=float, default=1e-6,
@@ -194,10 +202,12 @@ def count_codons(file_name):
 
 
 def plot_codon_proportions(X, n_samples, output_stem):
-    """Save per-site codon proportions as a stacked bar plot.
+    """Save per-site codon proportions as stacked and summary plots.
 
     ``X`` is the 61-by-site count matrix returned by :func:`count_codons`.
-    The output is written to ``{output_stem}_codon_proportions.pdf``.
+    The stacked-bar output is written to ``{output_stem}_codon_proportions.pdf``.
+    A line plot of the most common codon's proportion at each site is written
+    to ``{output_stem}_most_common_codon_proportions.pdf``.
     """
     X = np.asarray(X)
     if X.ndim != 2 or X.shape[0] != len(CODON_LIST):
@@ -231,6 +241,21 @@ def plot_codon_proportions(X, n_samples, output_stem):
     fig.savefig(output_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
     logging.info("Saved codon proportion plot to: %s", output_path)
+
+    most_common_proportions = proportions.max(axis=0)
+    summary_fig, summary_ax = plt.subplots(figsize=(fig_width, 4))
+    summary_ax.plot(sites, most_common_proportions, linewidth=1.5)
+    summary_ax.set_xlabel("Alignment codon position")
+    summary_ax.set_ylabel("Most common codon proportion")
+    summary_ax.set_title("Most common codon proportion per alignment position")
+    summary_ax.set_xlim(0.5, n_sites + 0.5)
+    summary_ax.set_ylim(0.0, 1.0)
+    summary_fig.tight_layout()
+
+    summary_output_path = output_stem + "_most_common_codon_proportions.pdf"
+    summary_fig.savefig(summary_output_path, format="pdf", bbox_inches="tight")
+    plt.close(summary_fig)
+    logging.info("Saved most common codon proportion plot to: %s", summary_output_path)
     return proportions
 
 def main():
@@ -273,6 +298,9 @@ def main():
                 fit_replicates=options.fit_replicates,
                 include_invariant=not options.exclude_invariant,
                 output=options.output_jax,
+                aggregate=options.objective_aggregate,
+                prior_mode=options.prior_mode,
+                estimate_eta=not options.fix_eta,
                 fit_method=options.fit_method,
                 fit_until_convergence=options.fit_until_convergence,
                 convergence_tol=options.convergence_tol,

@@ -156,7 +156,7 @@ def make_mask(X):
     return np.where(col_max == col_sum, 0, 1)
 
 
-def make_base_params(n_sites, estimate_eta=False):
+def make_base_params(n_sites, estimate_eta=True):
     """Build default raw initial parameters."""
     params = {
         "alpha": jnp.array(softplus_inverse(1), dtype=jnp.float64),
@@ -198,7 +198,8 @@ def _log_transform_jacobian(raw_value):
     return raw_value
 
 
-def prior_log_likelihood(raw_x, n_sites, prior_mode="current", estimate_eta=False):
+def prior_log_likelihood(raw_x, n_sites, prior_mode="stan_unconstrained",
+                         estimate_eta=True, aggregate="mean"):
     """Log prior contributions for MAP regularisation.
 
     The data log-likelihood is mean-aggregated over sites (mean(losses)), which
@@ -206,32 +207,60 @@ def prior_log_likelihood(raw_x, n_sites, prior_mode="current", estimate_eta=Fals
     the true Bayesian posterior Σᵢ log P(Dᵢ | θ) + log P(θ), every prior term
     must enter with the same 1/n_sites weighting.
 
-    ``prior_mode`` mirrors the later scalar-omega branch:
-    - ``current``: keep the existing branch behaviour.
+    ``omega`` is a per-site vector. Its prior is averaged over sites for a
+    mean-aggregated likelihood and summed for a sum-aggregated likelihood.
+    The GTR rates are global parameters, so their summed prior is divided by
+    the number of sites for a mean-aggregated likelihood and left unchanged
+    for a sum-aggregated likelihood. ``theta`` is a global scale parameter and
+    retains its full prior strength.
+
+    ``prior_mode`` selects the parameterisation convention:
+    - ``current``: existing priors without Jacobian terms.
     - ``none``: disable all priors.
-    - ``stan_constrained`` / ``stan_unconstrained``: retained for compatibility.
+    - ``stan_constrained``: constrained-scale priors without Jacobians.
+    - ``stan_unconstrained``: constrained priors plus raw-to-natural Jacobians.
     """
 
     if prior_mode == "none":
         return jnp.array(0.0, dtype=jnp.float64)
 
     omega = positive(raw_x["omega"])
-    omega_prior = jnp.mean(jax.scipy.stats.norm.logpdf(jnp.log(omega), jnp.log(0.5), 1.0))
+    if prior_mode == "current":
+        omega_terms = jax.scipy.stats.norm.logpdf(jnp.log(omega), jnp.log(0.5), 1.0)
+    else:
+        omega_terms = (
+            jax.scipy.stats.norm.logpdf(jnp.log(omega), jnp.log(0.5), 1.0)
+            - jnp.log(omega)
+        )
+        if prior_mode == "stan_unconstrained":
+            omega_terms += _log_transform_jacobian(raw_x["omega"])
+    omega_prior = jnp.mean(omega_terms)
 
     gtr_keys = ["alpha", "beta", "gamma", "delta", "epsilon"]
     if estimate_eta and "eta" in raw_x:
         gtr_keys.append("eta")
-    gtr_prior = jnp.sum(jnp.array([jax.scipy.stats.norm.logpdf(positive(raw_x[k]), 0.0, 1.0)
-                                    for k in gtr_keys]))
-    theta_prior = jax.scipy.stats.norm.logpdf(positive(raw_x["theta"]), 0.0, 1.0)
+    gtr_terms = []
+    for k in gtr_keys:
+        term = jax.scipy.stats.norm.logpdf(positive(raw_x[k]), 0.0, 1.0)
+        if prior_mode == "stan_unconstrained":
+            term += _log_transform_jacobian(raw_x[k])
+        gtr_terms.append(term)
+    gtr_prior = jnp.sum(jnp.array(gtr_terms))
 
+    theta_prior = jax.scipy.stats.norm.logpdf(positive(raw_x["theta"]), 0.0, 1.0)
+    if prior_mode == "stan_unconstrained":
+        theta_prior += _log_transform_jacobian(raw_x["theta"])
+
+    if aggregate == "sum":
+        return jnp.sum(omega_terms) + gtr_prior + theta_prior
     return omega_prior + gtr_prior / n_sites + theta_prior
 
 
 def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
             is_extracellular=None, regression_mask=None, regression_weight=0.1,
-            include_invariant=True, aggregate="mean", prior_mode="none",
-            estimate_eta=False, eigen_jitter=True, omega_floor=True):
+            include_invariant=True, aggregate="mean",
+            prior_mode="stan_unconstrained", estimate_eta=True,
+            eigen_jitter=True, omega_floor=True):
     # closure for defining fn (this change is mainly for making the unit testing
     # easier, before it was a closure in run_sampler())
     batched_loss = jax.vmap(
@@ -279,7 +308,8 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
             total = jnp.sum(selected_losses) / jnp.maximum(jnp.sum(mask_f), 1.0)
 
         total = total + prior_log_likelihood(
-            raw_x, X.shape[1], prior_mode=prior_mode, estimate_eta=estimate_eta
+            raw_x, X.shape[1], prior_mode=prior_mode,
+            estimate_eta=estimate_eta, aggregate=aggregate
         )
         if is_extracellular is not None:
             # regression_weight controls how strongly the regression term influences omega
@@ -600,7 +630,7 @@ def plot_omega(sites, omega, variant=None, log_scale=True):
     return fig
 
 
-def save_params(output_stem: str, params: dict, mask: np.ndarray) -> None:
+def save_params(output_stem: str, params: dict, mask: np.ndarray, estimate_eta=True) -> None:
     """Save MAP parameter estimates to two CSV files.
 
     {output_stem}_omega.csv   — per-site omega (site, omega_map, variant)
@@ -640,6 +670,8 @@ def save_params(output_stem: str, params: dict, mask: np.ndarray) -> None:
     logging.info("Saved natural-scale omega plot to: %s", omega_natural_plot_path)
 
     scalar_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "theta"]
+    if estimate_eta:
+        scalar_keys = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
     rows = [(k, float(positive(params[k]))) for k in scalar_keys if k in params]
     if "alpha_reg" in params:
         rows += [
@@ -1075,7 +1107,8 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 regression_weight=0.1, only_colour_domains=False,
                 estimate_uncertainty=False, fit_replicates=1,
                 include_invariant=True, output=None, aggregate="mean",
-                prior_mode="current", estimate_eta=False, eigen_jitter=True,
+                prior_mode="stan_unconstrained", estimate_eta=True,
+                eigen_jitter=True,
                 omega_floor=True, fit_until_convergence=False,
                 convergence_tol=1e-6, convergence_patience=5,
                 convergence_check_every=10, convergence_min_steps=50,
@@ -1241,13 +1274,23 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
 
     loss_fn = lambda p: -fn(p)
     print('Final likelihood: ', fn(params))
-    print('final parameters: ', jax.tree.map(positive, jnp.array([
-        params["alpha"], params["beta"], params["gamma"],
-        params["delta"], params["epsilon"], params["theta"]
-    ])))
-    print('transition/transversion ratio: ', 
-        ((jax.tree.map(positive,params["beta"]) +jax.tree.map(positive,params["epsilon"]))/(jax.tree.map(positive,params["alpha"]) + jax.tree.map(positive,params["gamma"]) + jax.tree.map(positive,params["delta"]) + 1.0))
-    )
+    if estimate_eta:
+        print('final parameters: ', jax.tree.map(positive, jnp.array([
+                params["alpha"], params["beta"], params["gamma"],
+                params["delta"], params["epsilon"],params["eta"], params["theta"]
+                ])))
+        print('transition/transversion ratio: ', 
+                ((jax.tree.map(positive,params["alpha"]) +jax.tree.map(positive,params["eta"]))/(jax.tree.map(positive,params["beta"]) + jax.tree.map(positive,params["gamma"]) + jax.tree.map(positive,params["delta"]) + jax.tree.map(positive,params["epsilon"])))
+            )
+    else:
+        print('final parameters: ', jax.tree.map(positive, jnp.array([
+            params["alpha"], params["beta"], params["gamma"],
+            params["delta"], params["epsilon"], params["theta"]
+        ])))
+        print('transition/transversion ratio: ', 
+                    ((jax.tree.map(positive,params["alpha"]) +1)/(jax.tree.map(positive,params["beta"]) + jax.tree.map(positive,params["gamma"]) + jax.tree.map(positive,params["delta"]) + jax.tree.map(positive,params["epsilon"])))
+                )
+    
     print('final omega: ', jax.tree.map(positive, params["omega"]))
     print('Objective function: ', loss_fn(params))
     if fit_replicates > 1:
@@ -1258,4 +1301,4 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         _print_laplace_summary(params, se_nat)
 
     if output is not None:
-        save_params(output, params, mask)
+        save_params(output, params, mask, estimate_eta)

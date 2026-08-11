@@ -13,6 +13,8 @@ import tombombadil
 from tombombadil.__main__ import configure_jax_for_options
 from tombombadil.__main__ import get_options
 from tombombadil.sample import make_fn
+from tombombadil.sample import make_base_params
+from tombombadil.sample import prior_log_likelihood
 from tombombadil.sample import run_nuts_sampler
 from tombombadil.sample import save_posterior_outputs
 from tombombadil.sample import save_params
@@ -33,12 +35,103 @@ class Testdiv(unittest.TestCase):
             log_pi, pimat, pimatinv, pimult = transforms(X, pi_test)
             mask = jnp.ones(1)
 
-            fn = make_fn(pi_test, log_pi, pimat, pimatinv, pimult, X, mask)
+            fn = make_fn(
+                pi_test, log_pi, pimat, pimatinv, pimult, X, mask,
+                prior_mode="none"
+            )
             self.assertAlmostEqual(fn({"alpha": softplus_inverse(1), "beta": softplus_inverse(1), "gamma": softplus_inverse(1), 
                                     "delta": softplus_inverse(1), "epsilon": softplus_inverse(1), "eta": softplus_inverse(1), 
                                     "theta": softplus_inverse(0.5), "omega": jnp.repeat(jnp.array(softplus_inverse(0.5), dtype=jnp.float32), jnp.size(X, axis=1))}), 
                                     jnp.array(-10.213031, dtype=jnp.float32), places=3)
-            
+
+
+class TestPriorOptions(unittest.TestCase):
+    def _raw_params(self, n_sites=2, include_eta=True):
+        params = {
+            "alpha": softplus_inverse(1.0),
+            "beta": softplus_inverse(1.0),
+            "gamma": softplus_inverse(1.0),
+            "delta": softplus_inverse(1.0),
+            "epsilon": softplus_inverse(1.0),
+            "theta": softplus_inverse(0.5),
+            "omega": jnp.array([softplus_inverse(0.25), softplus_inverse(0.5)]),
+        }
+        if include_eta:
+            params["eta"] = softplus_inverse(1.0)
+        return params
+
+    def test_per_site_prior_is_scalar_and_none_disables_it(self):
+        raw = self._raw_params()
+        prior = prior_log_likelihood(raw, 2, prior_mode="stan_unconstrained")
+
+        self.assertEqual(jnp.ndim(prior), 0)
+        self.assertTrue(bool(jnp.isfinite(prior)))
+        self.assertEqual(float(prior_log_likelihood(raw, 2, prior_mode="none")), 0.0)
+
+    def test_eta_prior_is_only_included_when_eta_is_estimated(self):
+        raw_with_eta = self._raw_params(include_eta=True)
+        raw_without_eta = self._raw_params(include_eta=False)
+
+        with_eta = prior_log_likelihood(
+            raw_with_eta, 2, prior_mode="stan_unconstrained", estimate_eta=True
+        )
+        without_eta = prior_log_likelihood(
+            raw_without_eta, 2, prior_mode="stan_unconstrained", estimate_eta=False
+        )
+        eta_term = jax.scipy.stats.norm.logpdf(
+            1.0, 0.0, 1.0
+        )
+
+        np.testing.assert_allclose(
+            float(with_eta - without_eta), float(eta_term / 2), atol=1e-6
+        )
+
+    def test_sum_aggregation_sums_site_priors_and_global_priors(self):
+        raw = self._raw_params()
+        mean_prior = prior_log_likelihood(
+            raw, 2, prior_mode="stan_unconstrained", aggregate="mean"
+        )
+        sum_prior = prior_log_likelihood(
+            raw, 2, prior_mode="stan_unconstrained", aggregate="sum"
+        )
+
+        omega = jnp.exp(raw["omega"])
+        omega_terms = jax.scipy.stats.norm.logpdf(
+            jnp.log(omega), jnp.log(0.5), 1.0
+        )
+        gtr_terms = 6 * jax.scipy.stats.norm.logpdf(1.0, 0.0, 1.0)
+        np.testing.assert_allclose(
+            float(sum_prior - mean_prior),
+            float(jnp.sum(omega_terms) - jnp.mean(omega_terms) + gtr_terms / 2),
+            atol=1e-5,
+        )
+
+    def test_new_defaults_include_eta_and_stan_unconstrained_priors(self):
+        self.assertIn("eta", make_base_params(3))
+        self.assertEqual(
+            prior_log_likelihood.__defaults__, ("stan_unconstrained", True, "mean")
+        )
+
+    def test_cli_defaults_and_overrides_for_priors_and_eta(self):
+        with mock.patch.object(sys, "argv", ["tombombadil", "--alignment", "x"]):
+            options = get_options()
+        self.assertEqual(options.prior_mode, "stan_unconstrained")
+        self.assertEqual(options.objective_aggregate, "mean")
+        self.assertFalse(options.fix_eta)
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "tombombadil", "--alignment", "x", "--prior-mode", "none",
+                "--objective-aggregate", "sum", "--fix-eta",
+            ],
+        ):
+            options = get_options()
+        self.assertEqual(options.prior_mode, "none")
+        self.assertEqual(options.objective_aggregate, "sum")
+        self.assertTrue(options.fix_eta)
+
 
 # this is not a real test, just checking the likelihood values for a specific case (column 9 of the porB alignment)
 # run via python -m unittest -v test.test_fn.Testlike
@@ -53,7 +146,10 @@ class Testlike(unittest.TestCase):
             log_pi, pimat, pimatinv, pimult = transforms(X, pi_test)
             mask = jnp.ones(1)
 
-            fn = make_fn(pi_test, log_pi, pimat, pimatinv, pimult, X, mask)
+            fn = make_fn(
+                pi_test, log_pi, pimat, pimatinv, pimult, X, mask,
+                prior_mode="none"
+            )
 
             fn_i = np.zeros(20)
             fn_result = np.zeros(20)
@@ -167,11 +263,15 @@ class Test_codon_count_matrix(unittest.TestCase):
             stem = os.path.join(tmp, "fit")
             proportions = plot_codon_proportions(counts, 4, stem)
             output = stem + "_codon_proportions.pdf"
+            summary_output = stem + "_most_common_codon_proportions.pdf"
 
             self.assertTrue(os.path.exists(output))
             self.assertGreater(os.path.getsize(output), 0)
+            self.assertTrue(os.path.exists(summary_output))
+            self.assertGreater(os.path.getsize(summary_output), 0)
 
         np.testing.assert_allclose(proportions.sum(axis=0), [1.0, 1.0])
+        np.testing.assert_allclose(proportions.max(axis=0), [0.75, 1.0])
 
 # Tests for domain parsing and regression
 # run via python -m unittest -v test.test_fn.TestDomainParsing
