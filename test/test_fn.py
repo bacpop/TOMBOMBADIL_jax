@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import tombombadil
 from tombombadil.__main__ import configure_jax_for_options
 from tombombadil.__main__ import get_options
+from tombombadil.__main__ import load_benchmark_omegas
 from tombombadil.sample import make_fn
 from tombombadil.sample import make_base_params
 from tombombadil.sample import prior_log_likelihood
@@ -23,6 +24,7 @@ from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
 from tombombadil.__main__ import count_codons
 from tombombadil.__main__ import plot_codon_proportions
+from tombombadil.sample import plot_omega
 
 # a test for calculating the likelihood (fn) for one codon, correct value from Stan implementation
 # run via python -m unittest -v test.test_fn.Testdiv
@@ -272,6 +274,66 @@ class Test_codon_count_matrix(unittest.TestCase):
 
         np.testing.assert_allclose(proportions.sum(axis=0), [1.0, 1.0])
         np.testing.assert_allclose(proportions.max(axis=0), [0.75, 1.0])
+
+
+class TestBenchmarkOverlay(unittest.TestCase):
+    def test_cli_benchmark_option(self):
+        with mock.patch.object(
+            sys, "argv", ["tombombadil", "--alignment", "alignment.fas",
+                           "--benchmark", "truth.tsv"]
+        ):
+            options = get_options()
+        self.assertEqual(options.benchmark, "truth.tsv")
+
+    def test_load_benchmark_omegas_reads_truth_tsv(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv") as benchmark:
+            benchmark.write("site\tclass\tomega\n1\tinvariant\tNA\n2\tomega_5.0\t5.0\n")
+            benchmark.flush()
+            observed = load_benchmark_omegas(benchmark.name, 2)
+
+        self.assertTrue(np.isnan(observed[0]))
+        self.assertEqual(observed[1], 5.0)
+
+    def test_load_benchmark_omegas_validates_columns_and_sites(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv") as benchmark:
+            benchmark.write("site\tomega\n1\t0.2\n3\t5.0\n")
+            benchmark.flush()
+            with self.assertRaisesRegex(ValueError, "consecutive alignment sites"):
+                load_benchmark_omegas(benchmark.name, 2)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv") as benchmark:
+            benchmark.write("site\tclass\n1\tomega_0.2\n")
+            benchmark.flush()
+            with self.assertRaisesRegex(ValueError, "site.*omega"):
+                load_benchmark_omegas(benchmark.name, 1)
+
+    def test_plot_omega_adds_truth_only_when_requested(self):
+        sites = np.arange(1, 4)
+        estimates = np.array([0.2, 1.0, 2.0])
+        truth = np.array([0.5, 1.5, 2.5])
+
+        fig = plot_omega(sites, estimates, log_scale=False, true_omega=truth)
+        labels = [collection.get_label() for collection in fig.axes[0].collections]
+        self.assertIn("True omega", labels)
+        self.assertEqual(len(fig.axes[0].collections), 3)
+        plt.close(fig)
+
+        fig = plot_omega(sites, estimates, log_scale=True, true_omega=truth)
+        labels = [collection.get_label() for collection in fig.axes[0].collections]
+        self.assertNotIn("True omega", labels)
+        self.assertEqual(len(fig.axes[0].collections), 1)
+        plt.close(fig)
+
+    def test_plot_omega_skips_nan_truth_sites(self):
+        sites = np.arange(1, 4)
+        estimates = np.array([0.2, 1.0, 2.0])
+        truth = np.array([np.nan, 1.5, np.nan])
+
+        fig = plot_omega(sites, estimates, log_scale=False, true_omega=truth)
+        connector = fig.axes[0].collections[1]
+        self.assertEqual(len(connector.get_segments()), 1)
+        self.assertEqual(len(fig.axes[0].collections[2].get_offsets()), 1)
+        plt.close(fig)
 
 # Tests for domain parsing and regression
 # run via python -m unittest -v test.test_fn.TestDomainParsing

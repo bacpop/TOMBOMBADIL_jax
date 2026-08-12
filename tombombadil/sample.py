@@ -592,7 +592,7 @@ def _print_laplace_summary(params, se_natural):
     print("----------------------------------------\n")
 
 
-def plot_omega(sites, omega, variant=None, log_scale=True):
+def plot_omega(sites, omega, variant=None, log_scale=True, true_omega=None):
     """Create a per-site omega scatter plot for saved parameter estimates."""
     sites = np.asarray(sites)
     omega = np.asarray(omega)
@@ -616,6 +616,18 @@ def plot_omega(sites, omega, variant=None, log_scale=True):
                        s=9, alpha=0.75, linewidths=0, label="Variable site",
                        zorder=3)
 
+    if true_omega is not None and not log_scale:
+        true_omega = np.asarray(true_omega)
+        if true_omega.shape != omega.shape:
+            raise ValueError("True omega length does not match omega length")
+        valid_truth = np.isfinite(true_omega)
+        ax.vlines(sites[valid_truth], omega[valid_truth], true_omega[valid_truth],
+                  color="blue", linewidth=0.6,
+                  alpha=0.5, zorder=4)
+        ax.scatter(sites[valid_truth], true_omega[valid_truth], color="blue",
+                   s=8, alpha=0.7,
+                   linewidths=0, label="True omega", zorder=5)
+
     ax.axhline(1.0, color="red", linestyle="--", linewidth=1.1, alpha=0.8,
                label="omega = 1", zorder=4)
     if log_scale:
@@ -630,7 +642,8 @@ def plot_omega(sites, omega, variant=None, log_scale=True):
     return fig
 
 
-def save_params(output_stem: str, params: dict, mask: np.ndarray, estimate_eta=True) -> None:
+def save_params(output_stem: str, params: dict, mask: np.ndarray, estimate_eta=True,
+                benchmark_omega=None) -> None:
     """Save MAP parameter estimates to two CSV files.
 
     {output_stem}_omega.csv   — per-site omega (site, omega_map, variant)
@@ -661,7 +674,8 @@ def save_params(output_stem: str, params: dict, mask: np.ndarray, estimate_eta=T
 
     omega_natural_plot_path = output_stem + "_omega_plot_natural.pdf"
     omega_natural_fig = plot_omega(
-        np.arange(1, len(omega) + 1), omega, mask, log_scale=False
+        np.arange(1, len(omega) + 1), omega, mask, log_scale=False,
+        true_omega=benchmark_omega
     )
     omega_natural_fig.savefig(
         omega_natural_plot_path, format="pdf", bbox_inches="tight"
@@ -752,7 +766,7 @@ def save_posterior_outputs(output_stem, raw_samples, summaries):
     logging.info("Saved posterior summary to: %s", summary_path)
 
 
-def _save_nuts_point_estimates(output_stem, samples, mask):
+def _save_nuts_point_estimates(output_stem, samples, mask, benchmark_omega=None):
     """Write posterior mean estimates in the same CSV shape as MAP output."""
     mean_params = {}
     for key, value in samples.items():
@@ -761,7 +775,8 @@ def _save_nuts_point_estimates(output_stem, samples, mask):
             mean_params[key] = mean
         else:
             mean_params[key] = jnp.log(jnp.maximum(mean - 1e-6, 1e-12))
-    save_params(output_stem, mean_params, mask)
+    save_params(output_stem, mean_params, mask,
+                benchmark_omega=benchmark_omega)
 
 
 def _sample_blackjax_chain(logdensity_fn, initial_position, rng_key, num_warmup,
@@ -824,7 +839,7 @@ def _stack_chain_pytrees(chain_pytrees):
 def run_nuts_sampler(fn, start_params, num_warmup=1000, num_samples=1000,
                      num_chains=4, rng_seed=0, target_acceptance_rate=0.8,
                      output=None, print_summary=True,
-                     chain_mode="sequential", mask=None):
+                     chain_mode="sequential", mask=None, benchmark_omega=None):
     """Run BlackJAX NUTS from raw unconstrained starting parameters."""
     if chain_mode not in ("sequential", "pmap"):
         raise ValueError(f"Unknown NUTS chain mode: {chain_mode}")
@@ -891,7 +906,9 @@ def run_nuts_sampler(fn, start_params, num_warmup=1000, num_samples=1000,
     if output is not None:
         save_posterior_outputs(output, raw_samples, summaries)
         if mask is not None:
-            _save_nuts_point_estimates(output, natural_samples, mask)
+            _save_nuts_point_estimates(
+                output, natural_samples, mask, benchmark_omega=benchmark_omega
+            )
 
     return {
         "raw_samples": raw_samples,
@@ -1107,6 +1124,7 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 regression_weight=0.1, only_colour_domains=False,
                 estimate_uncertainty=False, fit_replicates=1,
                 include_invariant=True, output=None, aggregate="mean",
+                benchmark_omega=None,
                 prior_mode="stan_unconstrained", estimate_eta=True,
                 eigen_jitter=True,
                 omega_floor=True, fit_until_convergence=False,
@@ -1169,6 +1187,7 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
             output=output,
             chain_mode=nuts_chain_mode,
             mask=mask,
+            benchmark_omega=benchmark_omega,
         )
 
     convergence = None
@@ -1201,7 +1220,8 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         plot_omega_coloured(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool))
         plot_omega_by_domain(params, np.array(is_extracellular), is_imputed_np, np.array(regression_mask, dtype=bool), diversity_mask=mask)
         if output is not None:
-            save_params(output, params, mask)
+            save_params(output, params, mask,
+                        benchmark_omega=benchmark_omega)
         plt.show()
         return
 
@@ -1261,7 +1281,8 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         plot_domain_comparison(omega_baseline, omega_domain, is_ext_np, is_imputed_np, reg_mask_np)
         plot_omega_by_domain(params, is_ext_np, is_imputed_np, reg_mask_np, diversity_mask=mask)
         if output is not None:
-            save_params(output, params, mask)
+            save_params(output, params, mask,
+                        benchmark_omega=benchmark_omega)
         plt.show()
         return
 
@@ -1301,4 +1322,5 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         _print_laplace_summary(params, se_nat)
 
     if output is not None:
-        save_params(output, params, mask, estimate_eta)
+        save_params(output, params, mask, estimate_eta,
+                    benchmark_omega=benchmark_omega)

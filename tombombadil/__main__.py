@@ -2,6 +2,7 @@
 
 import logging
 import gzip
+import csv
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -50,6 +51,8 @@ def get_options():
     iGroup = parser.add_argument_group('Input files')
     iGroup.add_argument('--alignment', type=str, required=True,
                         help='Alignment file to fit model to')
+    iGroup.add_argument('--benchmark', type=str, default=None, metavar='TSV',
+                        help='TSV file containing true per-site omega values for benchmarking')
 
     mGroup = parser.add_argument_group('Model options')
     mGroup.add_argument('--pi', type=str, default=None,
@@ -201,6 +204,37 @@ def count_codons(file_name):
     return X, n_samples
 
 
+def load_benchmark_omegas(file_name, n_sites):
+    """Read true per-site omega values from a benchmark TSV file."""
+    with open(file_name, newline="") as benchmark:
+        reader = csv.DictReader(benchmark, delimiter="\t")
+        required = {"site", "omega"}
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            raise ValueError("Benchmark TSV must contain 'site' and 'omega' columns")
+
+        sites = []
+        omegas = []
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                sites.append(int(row["site"]))
+                omega_value = row["omega"].strip()
+                omegas.append(
+                    np.nan if omega_value.upper() == "NA" else float(omega_value)
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Invalid benchmark value on TSV row {row_number}"
+                ) from exc
+
+    expected_sites = list(range(1, n_sites + 1))
+    if sites != expected_sites:
+        raise ValueError(
+            "Benchmark TSV site values must be consecutive alignment sites "
+            f"1 through {n_sites}"
+        )
+    return np.asarray(omegas, dtype=float)
+
+
 def plot_codon_proportions(X, n_samples, output_stem):
     """Save per-site codon proportions as stacked and summary plots.
 
@@ -273,6 +307,9 @@ def main():
     logging.info("Reading alignment...")
     X, n_samples = count_codons(options.alignment)
     logging.info(f"Read {n_samples} samples and {X.shape[1]} codons")
+    benchmark_omega = None
+    if options.benchmark is not None:
+        benchmark_omega = load_benchmark_omegas(options.benchmark, X.shape[1])
     if options.output_jax is not None:
         plot_codon_proportions(X, n_samples, options.output_jax)
 
@@ -298,6 +335,7 @@ def main():
                 fit_replicates=options.fit_replicates,
                 include_invariant=not options.exclude_invariant,
                 output=options.output_jax,
+                benchmark_omega=benchmark_omega,
                 aggregate=options.objective_aggregate,
                 prior_mode=options.prior_mode,
                 estimate_eta=not options.fix_eta,
