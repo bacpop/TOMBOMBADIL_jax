@@ -1,0 +1,3 @@
+# Optional NVIDIA GPU overlay for the base Poetry environment.
+# The base project intentionally keeps ordinary `jax` for CPU portability.
+jax[cuda12]>=0.8.1,<0.9.0

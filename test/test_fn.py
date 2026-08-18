@@ -529,6 +529,21 @@ class TestBlackjaxCli(unittest.TestCase):
                 "--xla_force_host_platform_device_count=3",
             )
 
+    def test_cpu_is_the_default_platform(self):
+        with mock.patch.object(
+            sys, "argv", ["tombombadil", "--alignment", "alignment.fas"]
+        ):
+            options = get_options()
+        self.assertEqual(options.platform, "cpu")
+
+    def test_gpu_platform_parses_without_affecting_cpu_defaults(self):
+        with mock.patch.object(
+            sys, "argv", ["tombombadil", "--alignment", "alignment.fas",
+                           "--platform", "gpu"]
+        ):
+            options = get_options()
+        self.assertEqual(options.platform, "gpu")
+
 
 class TestBlackjaxPosterior(unittest.TestCase):
     def test_save_params_writes_omega_csv_and_plot(self):

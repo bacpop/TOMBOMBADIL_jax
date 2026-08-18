@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 
 from .gtr import build_GTR
 from .likelihood import gen_alpha
+from .device import platform_summary, validate_platform
 
 SCALAR_PARAM_KEYS = ["alpha", "beta", "gamma", "delta", "epsilon", "theta"]
 SCALAR_PARAM_KEYS_WITH_ETA = SCALAR_PARAM_KEYS + ["eta"]
@@ -814,9 +815,8 @@ def _sample_blackjax_chains_pmap(logdensity_fn, initial_positions, rng_keys,
     if num_chains > n_devices:
         raise ValueError(
             f"Requested {num_chains} pmap NUTS chain(s), but JAX sees only "
-            f"{n_devices} local device(s). On CPU, run through the CLI with "
-            f"--nuts-chain-mode pmap --cpus {num_chains} before JAX is imported, "
-            "or use --nuts-chain-mode sequential."
+            f"{n_devices} local device(s). Select sequential chains or make "
+            "more devices visible to JAX."
         )
 
     def run_chain(initial_position, rng_key):
@@ -1133,6 +1133,13 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 fit_method="map", num_warmup=1000, num_samples=1000,
                 num_chains=4, rng_seed=0, target_acceptance_rate=0.8,
                 nuts_chain_mode="sequential"):
+    devices, _ = validate_platform(platform)
+    logging.info("JAX execution: %s", platform_summary(platform))
+    if nuts_chain_mode == "pmap" and num_chains > len(devices):
+        raise ValueError(
+            f"Requested {num_chains} pmap NUTS chain(s), but platform '{platform}' "
+            f"has only {len(devices)} visible device(s)."
+        )
     logging.info("Precomputing transforms...")
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     mask = make_mask(X)

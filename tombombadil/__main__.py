@@ -3,12 +3,12 @@
 import logging
 import gzip
 import csv
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 
 from .__init__ import __version__
 from .domains import parse_domain_json
+from .device import configure_platform
 
 # expected order
 # "TTT","TTC","TTA","TTG","TCT","TCC","TCA","TCG","TAT","TAC","TGT","TGC"
@@ -116,8 +116,8 @@ def get_options():
                         help='Sampling iterations')
 
     hGroup = parser.add_argument_group('Hardware options')
-    sGroup.add_argument('--platform', choices=['cpu', 'gpu', 'tpu'], default='cpu',
-                        help='Which hardware/device to run on')
+    sGroup.add_argument('--platform', choices=['cpu', 'gpu'], default='cpu',
+                        help='JAX platform to use (default: cpu; gpu requires an accelerator install)')
     sGroup.add_argument('--cpus', type=int, default=8,
                         help='Number of CPU cores to use')
     sGroup.add_argument('--nuts-chain-mode', choices=['sequential', 'pmap'], default='sequential',
@@ -134,16 +134,14 @@ def get_options():
 
 def configure_jax_for_options(options):
     """Set JAX process flags that must exist before JAX is imported."""
-    if (
-        options.fit_method == "nuts"
-        and options.nuts_chain_mode == "pmap"
-        and options.platform == "cpu"
-    ):
-        cpu_devices = max(int(options.cpus), 1)
-        flag = f"--xla_force_host_platform_device_count={cpu_devices}"
-        existing = os.environ.get("XLA_FLAGS", "")
-        if "--xla_force_host_platform_device_count" not in existing:
-            os.environ["XLA_FLAGS"] = f"{existing} {flag}".strip()
+    configure_platform(
+        options.platform,
+        cpus=options.cpus,
+        force_cpu_devices=(
+            options.fit_method == "nuts"
+            and options.nuts_chain_mode == "pmap"
+        ),
+    )
 
 def read_fasta(fp):
     name, seq = None, []
