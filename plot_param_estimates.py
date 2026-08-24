@@ -452,6 +452,195 @@ def plot_omega(sites, omega, variant=None, domain_annotations=None, log_scale=Tr
     return fig
 
 
+def plot_omega_by_domain(omega, domain_annotations, log_scale=True):
+    """Create a jittered per-site omega scatter plot grouped by domain."""
+    omega = np.asarray(omega, dtype=np.float64)
+    domains = np.asarray(domain_annotations, dtype=object)
+    if len(domains) != len(omega):
+        raise ValueError("Domain annotation length does not match omega length")
+
+    category_order = list(_DOMAIN_STYLES) + [_UNKNOWN_DOMAIN]
+    observed = [category for category in category_order if np.any(domains == category)]
+    nonstandard = [
+        category
+        for category in _unique(domains.tolist())
+        if category not in category_order
+    ]
+    categories = observed + nonstandard
+    if not categories:
+        raise ValueError("No domain annotations available")
+
+    fig, ax = plt.subplots(figsize=(max(6.5, len(categories) * 1.25), 5))
+    for x, category in enumerate(categories):
+        mask = domains == category
+        values = omega[mask]
+        count = len(values)
+        if count == 1:
+            jitter = np.zeros(1)
+        else:
+            jitter = np.linspace(-0.16, 0.16, count)
+        colour, label = _DOMAIN_STYLES.get(category, ("lightgrey", str(category)))
+        ax.scatter(
+            np.full(count, x, dtype=np.float64) + jitter,
+            values,
+            color=colour,
+            s=12,
+            alpha=0.7,
+            linewidths=0,
+            label=label,
+        )
+
+    ax.axhline(1.0, color="red", linestyle="--", linewidth=1.1, alpha=0.8,
+               label="omega = 1")
+    ax.set_xticks(np.arange(len(categories)))
+    ax.set_xticklabels(categories)
+    ax.set_xlabel("Domain")
+    if log_scale:
+        ax.set_yscale("log")
+        ax.set_ylabel("omega (dN/dS, log scale)")
+    else:
+        ax.set_ylabel("omega (dN/dS)")
+    ax.set_title("Per-site omega estimates by domain")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), borderaxespad=0, fontsize=8)
+    plt.tight_layout()
+    return fig
+
+
+def plot_omega_by_domain_distribution(omega, domain_annotations, log_scale=True):
+    """Create domain-grouped omega boxplots with overlaid site estimates."""
+    omega = np.asarray(omega, dtype=np.float64)
+    domains = np.asarray(domain_annotations, dtype=object)
+    if len(domains) != len(omega):
+        raise ValueError("Domain annotation length does not match omega length")
+
+    category_order = list(_DOMAIN_STYLES) + [_UNKNOWN_DOMAIN]
+    observed = [category for category in category_order if np.any(domains == category)]
+    nonstandard = [
+        category
+        for category in _unique(domains.tolist())
+        if category not in category_order
+    ]
+    categories = observed + nonstandard
+    if not categories:
+        raise ValueError("No domain annotations available")
+
+    values_by_category = [omega[domains == category] for category in categories]
+    positions = np.arange(1, len(categories) + 1)
+    fig, ax = plt.subplots(figsize=(max(6.5, len(categories) * 1.25), 5))
+    box = ax.boxplot(
+        values_by_category,
+        positions=positions,
+        widths=0.55,
+        patch_artist=True,
+        showfliers=False,
+        medianprops={"color": "black", "linewidth": 1.2},
+        whiskerprops={"color": "black", "linewidth": 0.9},
+        capprops={"color": "black", "linewidth": 0.9},
+    )
+
+    for patch, category in zip(box["boxes"], categories):
+        colour = _DOMAIN_STYLES.get(category, ("lightgrey", str(category)))[0]
+        patch.set_facecolor(colour)
+        patch.set_alpha(0.55)
+        patch.set_edgecolor("black")
+
+    for x, category in zip(positions, categories):
+        values = omega[domains == category]
+        count = len(values)
+        jitter = np.zeros(1) if count == 1 else np.linspace(-0.16, 0.16, count)
+        colour = _DOMAIN_STYLES.get(category, ("lightgrey", str(category)))[0]
+        ax.scatter(
+            np.full(count, x, dtype=np.float64) + jitter,
+            values,
+            color=colour,
+            edgecolors="black",
+            linewidths=0.25,
+            s=12,
+            alpha=0.7,
+            zorder=3,
+        )
+
+    ax.axhline(1.0, color="red", linestyle="--", linewidth=1.1, alpha=0.8,
+               label="omega = 1")
+    ax.set_xticks(positions)
+    ax.set_xticklabels(categories)
+    ax.set_xlabel("Domain")
+    if log_scale:
+        ax.set_yscale("log")
+        ax.set_ylabel("omega (dN/dS, log scale)")
+    else:
+        ax.set_ylabel("omega (dN/dS)")
+    ax.set_title("Omega estimate distributions by domain")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), borderaxespad=0, fontsize=8)
+    plt.tight_layout()
+    return fig
+
+
+def plot_omega_distribution_by_domain(omega, domain_annotations, log_scale=True):
+    """Create offset, shared-bin omega histograms grouped by domain."""
+    omega = np.asarray(omega, dtype=np.float64)
+    domains = np.asarray(domain_annotations, dtype=object)
+    if len(domains) != len(omega):
+        raise ValueError("Domain annotation length does not match omega length")
+    if len(omega) == 0:
+        raise ValueError("No omega estimates available")
+
+    category_order = list(_DOMAIN_STYLES) + [_UNKNOWN_DOMAIN]
+    nonstandard = [
+        category
+        for category in _unique(domains.tolist())
+        if category not in category_order
+    ]
+    categories = category_order + nonstandard
+    bins = np.histogram_bin_edges(omega, bins="auto")
+
+    fig, ax = plt.subplots(figsize=(8.5, 5))
+    bin_widths = np.diff(bins)
+    # Make each category bar fill its bin completely, with only a small offset
+    # between categories so each colored distribution remains continuous.
+    bar_widths = bin_widths
+    bin_centres = (bins[:-1] + bins[1:]) / 2
+
+    for category_index, category in enumerate(categories):
+        values = omega[domains == category]
+        counts, _ = np.histogram(values, bins=bins)
+        colour, label = _DOMAIN_STYLES.get(category, ("lightgrey", str(category)))
+        offset = (
+            category_index - (len(categories) - 1) / 2
+        ) * bin_widths * 0.025
+        ax.bar(
+            bin_centres + offset,
+            counts,
+            width=bar_widths,
+            color=colour,
+            alpha=0.5,
+            edgecolor=colour,
+            linewidth=0.6,
+            label=label,
+            align="center",
+            zorder=2 + category_index,
+        )
+
+    ax.axvline(
+        1.0,
+        color="red",
+        linestyle="--",
+        linewidth=1.1,
+        alpha=0.8,
+        label="omega = 1",
+    )
+    if log_scale:
+        ax.set_xscale("log")
+        ax.set_xlabel("omega (dN/dS, log scale)")
+    else:
+        ax.set_xlabel("omega (dN/dS)")
+    ax.set_ylabel("Number of sites")
+    ax.set_title("Omega estimate distributions by domain")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), borderaxespad=0, fontsize=8)
+    plt.tight_layout()
+    return fig
+
+
 def plot_scalars(scalars):
     """Create a scalar-parameter dot plot."""
     names = ordered_scalar_names(scalars)
@@ -496,8 +685,11 @@ def write_plots(
     record_key=None,
     log_omega=False,
     include_eta=True,
+    domain_omega_out=None,
+    domain_distribution_out=None,
+    domain_histogram_out=None,
 ):
-    """Load one CSV pair and write omega/scalar plot PNGs."""
+    """Load one CSV pair and write its requested plot PNGs."""
     sites, omega, variant = load_omega_csv(omega_path)
     scalars = load_scalar_csv(scalar_path, include_eta=include_eta)
     domain_annotations = None
@@ -519,6 +711,36 @@ def write_plots(
     )
     omega_fig.savefig(omega_out, dpi=300, bbox_inches="tight")
     plt.close(omega_fig)
+
+    if domain_annotations is not None and domain_omega_out is not None:
+        domain_fig = plot_omega_by_domain(
+            omega,
+            domain_annotations,
+            log_scale=log_omega,
+        )
+        domain_fig.savefig(domain_omega_out, dpi=300, bbox_inches="tight")
+        plt.close(domain_fig)
+        print(f"Wrote domain omega plot: {domain_omega_out}")
+
+    if domain_annotations is not None and domain_distribution_out is not None:
+        distribution_fig = plot_omega_by_domain_distribution(
+            omega,
+            domain_annotations,
+            log_scale=log_omega,
+        )
+        distribution_fig.savefig(domain_distribution_out, dpi=300, bbox_inches="tight")
+        plt.close(distribution_fig)
+        print(f"Wrote domain distribution plot: {domain_distribution_out}")
+
+    if domain_annotations is not None and domain_histogram_out is not None:
+        histogram_fig = plot_omega_distribution_by_domain(
+            omega,
+            domain_annotations,
+            log_scale=log_omega,
+        )
+        histogram_fig.savefig(domain_histogram_out, dpi=300, bbox_inches="tight")
+        plt.close(histogram_fig)
+        print(f"Wrote domain histogram plot: {domain_histogram_out}")
 
     scalar_fig = plot_scalars(scalars)
     scalar_fig.savefig(scalar_out, dpi=300, bbox_inches="tight")
@@ -620,12 +842,24 @@ def main():
             stem_name = os.path.basename(stem)
             alignment_path = _resolve_alignment_path(args.alignment, stem_name)
             omega_out = os.path.join(output_folder, stem_name + "_omega_plot.png")
+            domain_omega_out = os.path.join(
+                output_folder, stem_name + "_omega_by_domain_plot.png"
+            )
+            domain_distribution_out = os.path.join(
+                output_folder, stem_name + "_omega_by_domain_distribution_plot.png"
+            )
+            domain_histogram_out = os.path.join(
+                output_folder, stem_name + "_omega_distribution_by_domain_plot.png"
+            )
             scalar_out = os.path.join(output_folder, stem_name + "_scalar_plot.png")
             write_plots(
                 omega_path,
                 scalar_path,
                 omega_out,
                 scalar_out,
+                domain_omega_out=domain_omega_out,
+                domain_distribution_out=domain_distribution_out,
+                domain_histogram_out=domain_histogram_out,
                 domain_annotation_path=args.domain_annotations,
                 alignment_path=alignment_path,
                 reference_path=args.reference_protein,
@@ -639,12 +873,20 @@ def main():
         omega_path = args.stem + "_omega.csv"
         scalar_path = args.stem + "_scalar.csv"
         omega_out = output_prefix + "_omega_plot.png"
+        domain_omega_out = output_prefix + "_omega_by_domain_plot.png"
+        domain_distribution_out = (
+            output_prefix + "_omega_by_domain_distribution_plot.png"
+        )
+        domain_histogram_out = output_prefix + "_omega_distribution_by_domain_plot.png"
         scalar_out = output_prefix + "_scalar_plot.png"
         write_plots(
             omega_path,
             scalar_path,
             omega_out,
             scalar_out,
+            domain_omega_out=domain_omega_out,
+            domain_distribution_out=domain_distribution_out,
+            domain_histogram_out=domain_histogram_out,
             domain_annotation_path=args.domain_annotations,
             alignment_path=args.alignment,
             reference_path=args.reference_protein,

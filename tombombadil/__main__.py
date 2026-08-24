@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from .__init__ import __version__
 from .domains import parse_domain_json
 from .device import configure_platform
+from .genetic_code import AA_LIST, CODON_LIST
 
 # expected order
 # "TTT","TTC","TTA","TTG","TCT","TCC","TCA","TCG","TAT","TAC","TGT","TGC"
@@ -23,9 +24,6 @@ col_order = np.array([63, 61, 60, 62, 55, 53, 52, 54, 51, 49, 59, 57, 58, 31, 29
                        5,  4,  6,  3,  1,  0,  2, 11,  9,  8, 10, 47, 45, 44, 46, 39, 37,
                       36, 38, 35, 33, 32, 34, 43, 41, 40, 42, 48, 50, 56, 64])
 
-CODON_LIST = [a + b + c for a in "TCAG" for b in "TCAG" for c in "TCAG"
-              if a + b + c not in {"TAA", "TAG", "TGA"}]
-assert len(CODON_LIST) == 61
 #stop codons 48 50 56
 #Ns 64
 
@@ -233,13 +231,27 @@ def load_benchmark_omegas(file_name, n_sites):
     return np.asarray(omegas, dtype=float)
 
 
+def _most_common_amino_acid_proportions(proportions):
+    """Return the most-common amino-acid proportion for each alignment site."""
+    proportions = np.asarray(proportions, dtype=float)
+    if proportions.ndim != 2 or proportions.shape[0] != len(CODON_LIST):
+        raise ValueError("proportions must have shape (61, n_sites)")
+
+    amino_acids = sorted(set(AA_LIST))
+    amino_acid_proportions = np.zeros((len(amino_acids), proportions.shape[1]))
+    amino_acid_to_row = {amino_acid: i for i, amino_acid in enumerate(amino_acids)}
+    for codon_row, amino_acid in enumerate(AA_LIST):
+        amino_acid_proportions[amino_acid_to_row[amino_acid]] += proportions[codon_row]
+    return amino_acid_proportions.max(axis=0)
+
+
 def plot_codon_proportions(X, n_samples, output_stem):
     """Save per-site codon proportions as stacked and summary plots.
 
     ``X`` is the 61-by-site count matrix returned by :func:`count_codons`.
     The stacked-bar output is written to ``{output_stem}_codon_proportions.pdf``.
-    A line plot of the most common codon's proportion at each site is written
-    to ``{output_stem}_most_common_codon_proportions.pdf``.
+    A line plot of the most common codon and amino acid proportions at each
+    site is written to ``{output_stem}_most_common_codon_proportions.pdf``.
     """
     X = np.asarray(X)
     if X.ndim != 2 or X.shape[0] != len(CODON_LIST):
@@ -275,13 +287,27 @@ def plot_codon_proportions(X, n_samples, output_stem):
     logging.info("Saved codon proportion plot to: %s", output_path)
 
     most_common_proportions = proportions.max(axis=0)
+    most_common_amino_acid_proportions = _most_common_amino_acid_proportions(proportions)
+
     summary_fig, summary_ax = plt.subplots(figsize=(fig_width, 4))
-    summary_ax.plot(sites, most_common_proportions, linewidth=1.5)
+    summary_ax.plot(
+        sites,
+        most_common_proportions,
+        linewidth=1.5,
+        label="Most common codon",
+    )
+    summary_ax.plot(
+        sites,
+        most_common_amino_acid_proportions,
+        linewidth=1.5,
+        label="Most common amino acid",
+    )
     summary_ax.set_xlabel("Alignment codon position")
-    summary_ax.set_ylabel("Most common codon proportion")
-    summary_ax.set_title("Most common codon proportion per alignment position")
+    summary_ax.set_ylabel("Proportion")
+    summary_ax.set_title("Most common codon and amino acid proportions per alignment position")
     summary_ax.set_xlim(0.5, n_sites + 0.5)
     summary_ax.set_ylim(0.0, 1.0)
+    summary_ax.legend()
     summary_fig.tight_layout()
 
     summary_output_path = output_stem + "_most_common_codon_proportions.pdf"

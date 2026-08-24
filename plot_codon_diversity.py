@@ -19,38 +19,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.patches import Patch
 
 from tombombadil.__main__ import count_codons
-
-
-# 61 sense codons in TCAG order (same ordering as the count matrix rows)
-_BASES = ["T", "C", "A", "G"]
-_STOP_CODONS = {"TAA", "TAG", "TGA"}
-CODON_LIST = [a + b + c
-              for a in _BASES for b in _BASES for c in _BASES
-              if a + b + c not in _STOP_CODONS]
-assert len(CODON_LIST) == 61
-
-# Standard genetic code (sense codons only)
-_GENETIC_CODE = {
-    'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-    'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-    'TAT': 'Y', 'TAC': 'Y',
-    'TGT': 'C', 'TGC': 'C', 'TGG': 'W',
-    'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-    'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-    'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-    'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-    'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-    'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-    'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-    'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-    'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-    'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-    'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-    'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G',
-}
-
-# Pre-build amino acid list in CODON_LIST order for fast lookup
-AA_LIST = [_GENETIC_CODE[c] for c in CODON_LIST]
+from tombombadil.genetic_code import AA_LIST, CODON_LIST
 
 
 def is_nonsyn(i, j):

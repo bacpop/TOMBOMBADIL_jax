@@ -24,6 +24,8 @@ from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
 from tombombadil.__main__ import count_codons
 from tombombadil.__main__ import plot_codon_proportions
+from tombombadil.__main__ import _most_common_amino_acid_proportions
+from tombombadil.genetic_code import AA_LIST, CODON_LIST
 from tombombadil.sample import plot_omega
 
 # a test for calculating the likelihood (fn) for one codon, correct value from Stan implementation
@@ -274,6 +276,26 @@ class Test_codon_count_matrix(unittest.TestCase):
 
         np.testing.assert_allclose(proportions.sum(axis=0), [1.0, 1.0])
         np.testing.assert_allclose(proportions.max(axis=0), [0.75, 1.0])
+
+    def test_most_common_amino_acid_combines_synonymous_codons(self):
+        self.assertEqual(len(CODON_LIST), 61)
+        self.assertEqual(len(AA_LIST), 61)
+
+        proportions = np.zeros((61, 1), dtype=float)
+        proportions[CODON_LIST.index("TTT"), 0] = 0.75
+        proportions[CODON_LIST.index("TTC"), 0] = 0.25
+
+        np.testing.assert_allclose(
+            _most_common_amino_acid_proportions(proportions), [1.0]
+        )
+
+    def test_most_common_amino_acid_proportion_preserves_missing_counts(self):
+        proportions = np.zeros((61, 1), dtype=float)
+        proportions[CODON_LIST.index("TTT"), 0] = 0.5
+
+        np.testing.assert_allclose(
+            _most_common_amino_acid_proportions(proportions), [0.5]
+        )
 
 
 class TestBenchmarkOverlay(unittest.TestCase):
