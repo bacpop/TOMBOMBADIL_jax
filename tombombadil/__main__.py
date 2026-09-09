@@ -147,7 +147,7 @@ def get_options():
     hGroup = parser.add_argument_group('Hardware options')
     hGroup.add_argument('--platform', choices=['cpu', 'gpu', 'tpu'], default='cpu',
                         help='Which hardware/device to run on')
-    hGroup.add_argument('--cpus', type=int, default=8,
+    hGroup.add_argument('--cpus', type=int, default=1,
                         help='Number of CPU cores to use')
     hGroup.add_argument('--nuts-chain-mode', choices=['sequential', 'pmap'], default='sequential',
                         help='Run NUTS chains sequentially or in parallel across JAX devices '
@@ -310,6 +310,12 @@ def main():
         force=True)
 
     options = get_options()
+    if options.cpus != 1 and options.nuts_chain_mode != "pmap":
+        logging.warning(
+            "--cpus=%s has no effect unless --nuts-chain-mode pmap is used; "
+            "MAP optimisation and sequential NUTS chains run serially.",
+            options.cpus,
+        )
     configure_jax_for_options(options)
     logging.info("Reading alignment...")
     X, n_samples = count_codons(options.alignment)

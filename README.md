@@ -123,7 +123,7 @@ use the same `scalar_` or `per_site_` prefix.
 
 --platform gpu/cpu/tpu
 
---cpus x default=8 number of cpus
+--cpus x default=1 number of cpus for CPU pmap chains
 
 --pi uniform/empirical/F3x4 default=uniform codon equilibrium frequencies
 
