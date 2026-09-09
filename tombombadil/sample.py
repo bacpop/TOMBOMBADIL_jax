@@ -984,17 +984,9 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         params["delta"], params["epsilon"], params["theta"]
         ])))
     print('final omega: ', jax.tree.map(positive, params["omega"]))
-    if estimate_eta:
-        print('final eta: ', positive(params["eta"]))
-        print('transition/transversion ratio: ', 
-            ((jax.tree.map(positive,params["beta"]) +jax.tree.map(positive,params["epsilon"]))/(jax.tree.map(positive,params["alpha"]) + jax.tree.map(positive,params["gamma"]) + jax.tree.map(positive,params["delta"]) + jax.tree.map(positive,params["eta"])))
-        )
-    print('transition/transversion ratio: ', 
-            ((jax.tree.map(positive,params["beta"]) +jax.tree.map(positive,params["epsilon"]))/(jax.tree.map(positive,params["alpha"]) + jax.tree.map(positive,params["gamma"]) + jax.tree.map(positive,params["delta"]) + 1.0))
-        )
     status = "converged" if best_metadata["converged"] else "reached max steps"
     print(f"Optimization status: {status} after {best_metadata['n_steps']} step(s)")
-    print('Objective function: ', loss_fn(params))
+    #print('Objective function: ', loss_fn(params))
     if fit_replicates > 1:
         plot_replicates(all_params, best_idx)
         plt.show()
@@ -1003,7 +995,7 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         if output is not None:
             fig.savefig(mode_output_stem(output, omega_mode) + "_omega_plot.pdf",
                         format="pdf", bbox_inches="tight")
-        plt.show()
+        plt.close(fig)
     if estimate_uncertainty:
         logging.info("Computing Laplace uncertainty...")
         _, se_nat = compute_laplace_se(fn, params)
