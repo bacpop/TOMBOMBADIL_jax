@@ -13,37 +13,54 @@ Original implementation in Stan https://github.com/bacpop/TOMBOMBADIL
 Work is based on Genomegamap https://doi.org/10.1093/molbev/msaa069
 
 # Fitting dN/dS model to data   
-Create codon-based multiple sequence alignments
+1. Create codon-based multiple sequence alignments
 
-install Python 3.14.0
+2. Install Python 3.14.0, clone this GitHub repository
 
-run using  
+3. Estimate dN/dS using TOMBOMBADIL by running one of the following commands from within the folder  
 
+- Fit one omega estimate for the whole alignment (scalar omega) with maximum a posteriori (MAP) optimisation (default)
+```bash
 python -m tombombadil --alignment alignment.fas.aln --fit-replicates 4 --fit-until-convergence --output-jax output.txt
+```
 
-The default fits one scalar omega for the complete alignment. To fit one omega
-per codon site, select the per-site model explicitly:
-
+- Fit one omega estimate for per codon position in the alignment with maximum a posteriori (MAP) optimisation
+```bash
 python -m tombombadil --alignment alignment.fas.aln --omega-mode per-site --output-jax output
+```
 
 Optional domain JSON annotations can colour per-site omega plots. A reference
 protein FASTA is required for mapping alignment columns to protein positions:
 
+```bash
 python -m tombombadil --alignment alignment.fas.aln --omega-mode per-site --domains domains.json --reference reference.faa
+```
 
-optional: blackJax
 
+- Scalar omega parameter inference with MCMC (NUTS) using blackJax
+
+```bash
 python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --output-jax output.txt
+```
 
-optional: blackJax with parallel chains
+- Scalar omega parameter inference with MCMC (NUTS) using blackJax with parallel chains
 
+```bash
 python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --nuts-chain-mode pmap --output-jax output.txt
+```
+
+- Fit one omega estimate for per codon position in the alignment with MCMC (NUTS) using blackJax 
+```bash
+python -m tombombadil --alignment alignment.fas.aln --omega-mode per-site --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --output-jax output.txt
+```
+
 
 ## Mini tutorial
 
 The repository includes the example codon alignment of porin porB of *Neisseria meningitidis* `porB3_aligned.fasta`.
 
 ### 1. Scalar omega with maximum a posteriori (MAP) optimisation
+(takes around 30 seconds on one cpu core)
 
 This is the default model: one omega is estimated for the complete alignment.
 `--sample-it` controls the number of MAP optimisation steps.
@@ -60,6 +77,7 @@ python -m tombombadil \
 This writes `scalar_porB3_map_Allparams.csv`.
 
 ### 2. Per-site omega with maximum a posteriori (MAP) optimisation
+(takes about four minutes on one cpu core)
 
 This estimates one omega value for each codon site.
 
