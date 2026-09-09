@@ -3,10 +3,10 @@
 
 Reads CSV files written by ``tombombadil.sample.save_params``:
 
-    STEM_scalar.csv  with columns: variable, value
+    scalar_STEM_Allparams.csv  with columns: variable, value
 
 In stem mode, produces ``STEM_scalar_plot.png`` by default. In folder mode,
-writes one PNG for each ``*_scalar.csv`` file found in the input folder.
+    writes one PNG for each ``scalar_*_Allparams.csv`` file found in the input folder.
 """
 
 import argparse
@@ -50,10 +50,10 @@ def load_scalar_csv(path):
 
 
 def find_scalar_csvs(folder):
-    """Find *_scalar.csv files in a folder."""
-    paths = sorted(glob.glob(os.path.join(folder, "*_scalar.csv")))
+    """Find scalar-mode parameter CSV files in a folder."""
+    paths = sorted(glob.glob(os.path.join(folder, "scalar_*_Allparams.csv")))
     if not paths:
-        raise FileNotFoundError(f"No *_scalar.csv files found in {folder}")
+        raise FileNotFoundError(f"No scalar_*_Allparams.csv files found in {folder}")
     return paths
 
 
@@ -96,11 +96,11 @@ def main():
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "--stem",
-        help="Input stem. Reads STEM_scalar.csv.",
+        help="Input stem. Reads scalar_STEM_Allparams.csv.",
     )
     input_group.add_argument(
         "--folder",
-        help="Input folder. Plots every *_scalar.csv file in the folder.",
+        help="Input folder. Plots every scalar_*_Allparams.csv file in the folder.",
     )
     parser.add_argument(
         "--output",
@@ -117,12 +117,18 @@ def main():
         output_folder = args.output or args.folder
         os.makedirs(output_folder, exist_ok=True)
         for scalar_path in find_scalar_csvs(args.folder):
-            stem_name = os.path.basename(scalar_path[: -len("_scalar.csv")])
-            scalar_out = os.path.join(output_folder, stem_name + "_scalar_plot.png")
+            stem_name = os.path.basename(scalar_path[: -len("_Allparams.csv")])
+            scalar_out = os.path.join(output_folder, stem_name + "_plot.png")
             plot_one(scalar_path, scalar_out, log_scale=args.log_scale)
     else:
-        scalar_path = args.stem + "_scalar.csv"
-        scalar_out = args.output or args.stem + "_scalar_plot.png"
+        scalar_path = os.path.join(
+            os.path.dirname(args.stem),
+            "scalar_" + os.path.basename(args.stem) + "_Allparams.csv",
+        )
+        scalar_out = args.output or os.path.join(
+            os.path.dirname(args.stem),
+            "scalar_" + os.path.basename(args.stem) + "_plot.png",
+        )
         plot_one(scalar_path, scalar_out, log_scale=args.log_scale)
 
 

@@ -275,10 +275,11 @@ class TestScalarOmegaOutput(unittest.TestCase):
             stem = os.path.join(tmp, "fit")
             save_params(stem, params)
 
-            self.assertTrue(os.path.exists(stem + "_scalar.csv"))
-            self.assertFalse(os.path.exists(stem + "_omega.csv"))
+            scalar_path = os.path.join(tmp, "scalar_fit_Allparams.csv")
+            self.assertTrue(os.path.exists(scalar_path))
+            self.assertFalse(os.path.exists(os.path.join(tmp, "scalar_fit_omega.csv")))
 
-            with open(stem + "_scalar.csv", newline="") as f:
+            with open(scalar_path, newline="") as f:
                 rows = {row["variable"]: float(row["value"]) for row in csv.DictReader(f)}
 
         self.assertIn("omega", rows)
@@ -409,9 +410,9 @@ class TestOmegaModes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             stem = os.path.join(tmp, "fit")
             save_params(stem, params, mask=np.array([0, 1, 1]), omega_mode="per-site")
-            with open(stem + "_omega.csv", newline="") as handle:
+            with open(os.path.join(tmp, "per_site_fit_omega.csv"), newline="") as handle:
                 rows = list(csv.DictReader(handle))
-            with open(stem + "_scalar.csv", newline="") as handle:
+            with open(os.path.join(tmp, "per_site_fit_GTRparams.csv"), newline="") as handle:
                 scalar_rows = list(csv.DictReader(handle))
         self.assertEqual(len(rows), 3)
         self.assertEqual([row["site"] for row in rows], ["1", "2", "3"])
@@ -607,9 +608,11 @@ class TestBlackjaxPosterior(unittest.TestCase):
             stem = os.path.join(tmp, "fit")
             save_posterior_outputs(stem, raw_samples, summaries)
 
-            self.assertTrue(os.path.exists(stem + "_posterior_samples.csv"))
-            self.assertTrue(os.path.exists(stem + "_posterior_summary.csv"))
-            with open(stem + "_posterior_summary.csv", newline="") as f:
+            samples_path = os.path.join(tmp, "scalar_fit_posterior_samples.csv")
+            summary_path = os.path.join(tmp, "scalar_fit_posterior_summary.csv")
+            self.assertTrue(os.path.exists(samples_path))
+            self.assertTrue(os.path.exists(summary_path))
+            with open(summary_path, newline="") as f:
                 rows = {row["variable"]: row for row in csv.DictReader(f)}
 
         self.assertIn("alpha", rows)

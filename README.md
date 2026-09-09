@@ -39,6 +39,11 @@ optional: blackJax with parallel chains
 
 python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --nuts-chain-mode pmap --output-jax output.txt
 
+Output files are prefixed by omega mode. With `--output-jax output`, scalar
+MAP fitting writes `scalar_output_Allparams.csv`; per-site MAP fitting writes
+`per_site_output_GTRparams.csv` and `per_site_output_omega.csv`. NUTS files
+use the same `scalar_` or `per_site_` prefix.
+
 # More options
 --convergence-tol x default=1e-6
 

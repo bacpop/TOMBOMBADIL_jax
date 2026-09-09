@@ -2,6 +2,7 @@
 
 import csv as _csv
 import logging
+import os
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -28,6 +29,14 @@ def validate_omega_mode(omega_mode):
     if omega_mode not in OMEGA_MODES:
         raise ValueError(f"Unknown omega mode: {omega_mode!r}")
     return omega_mode
+
+
+def mode_output_stem(output_stem, omega_mode):
+    """Prefix an output stem so files identify their omega parameterisation."""
+    validate_omega_mode(omega_mode)
+    directory, basename = os.path.split(str(output_stem))
+    prefixed = f"{omega_mode.replace('-', '_')}_{basename}"
+    return os.path.join(directory, prefixed) if directory else prefixed
 
 @jit
 def my_dirichlet_multinomial_logpmf(x, a):
@@ -467,12 +476,14 @@ def save_params(output_stem: str, params: dict, mask: np.ndarray = None,
                 omega_mode="scalar") -> None:
     """Save MAP scalar parameter estimates to CSV.
 
-    {output_stem}_scalar.csv  — scalar parameters (variable, value)
+    scalar_<stem>_Allparams.csv — scalar-mode parameters
+    per_site_<stem>_GTRparams.csv — shared GTR/theta parameters
     """
-    scalar_path = output_stem + "_scalar.csv"
-
     validate_omega_mode(omega_mode)
+    output_stem = mode_output_stem(output_stem, omega_mode)
     scalar_keys = SCALAR_PARAM_KEYS_WITH_ETA if omega_mode == "scalar" else GTR_PARAM_KEYS_WITH_ETA
+    parameter_name = "Allparams" if omega_mode == "scalar" else "GTRparams"
+    scalar_path = output_stem + f"_{parameter_name}.csv"
     rows = [(k, float(positive(params[k]))) for k in scalar_keys if k in params]
     with open(scalar_path, "w", newline="") as f:
         w = _csv.writer(f)
@@ -595,6 +606,7 @@ def save_posterior_outputs(output_stem, raw_samples, summaries, omega_mode="scal
     """Save posterior draws and scalar summaries to CSV files."""
     samples = _posterior_draws_natural(raw_samples)
     validate_omega_mode(omega_mode)
+    output_stem = mode_output_stem(output_stem, omega_mode)
     keys = [k for k in SCALAR_PARAM_KEYS_WITH_ETA if k in samples and (omega_mode == "scalar" or k != "omega")]
     samples_path = output_stem + "_posterior_samples.csv"
     with open(samples_path, "w", newline="") as f:
@@ -989,7 +1001,8 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
     if omega_mode == "per-site":
         fig, _ = plot_per_site_omega(params, mask=mask, domain_labels=domain_labels)
         if output is not None:
-            fig.savefig(output + "_omega_plot.pdf", format="pdf", bbox_inches="tight")
+            fig.savefig(mode_output_stem(output, omega_mode) + "_omega_plot.pdf",
+                        format="pdf", bbox_inches="tight")
         plt.show()
     if estimate_uncertainty:
         logging.info("Computing Laplace uncertainty...")

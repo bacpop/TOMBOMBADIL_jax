@@ -8,7 +8,7 @@ from plot_param_estimates import find_scalar_csvs, load_scalar_csv
 class TestScalarParamPlots(unittest.TestCase):
     def test_load_scalar_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
-            scalar_path = os.path.join(tmp, "fit_scalar.csv")
+            scalar_path = os.path.join(tmp, "scalar_fit_Allparams.csv")
             with open(scalar_path, "w") as f:
                 f.write("variable,value\nalpha,1.0\nomega,0.5\n")
 
@@ -19,7 +19,7 @@ class TestScalarParamPlots(unittest.TestCase):
 
     def test_find_scalar_csvs(self):
         with tempfile.TemporaryDirectory() as tmp:
-            scalar_path = os.path.join(tmp, "fit_scalar.csv")
+            scalar_path = os.path.join(tmp, "scalar_fit_Allparams.csv")
             other_path = os.path.join(tmp, "notes.txt")
             with open(scalar_path, "w") as f:
                 f.write("variable,value\nomega,0.5\n")
