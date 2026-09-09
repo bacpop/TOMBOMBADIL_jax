@@ -21,6 +21,16 @@ run using
 
 python -m tombombadil --alignment alignment.fas.aln --fit-replicates 4 --fit-until-convergence --output-jax output.txt
 
+The default fits one scalar omega for the complete alignment. To fit one omega
+per codon site, select the per-site model explicitly:
+
+python -m tombombadil --alignment alignment.fas.aln --omega-mode per-site --output-jax output
+
+Optional domain JSON annotations can colour per-site omega plots. A reference
+protein FASTA is required for mapping alignment columns to protein positions:
+
+python -m tombombadil --alignment alignment.fas.aln --omega-mode per-site --domains domains.json --reference reference.faa
+
 optional: blackJax
 
 python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --output-jax output.txt

@@ -25,6 +25,8 @@ from tombombadil.sample import summarize_posterior_samples
 from tombombadil.sample import transforms
 from tombombadil.sample import softplus_inverse
 from tombombadil.__main__ import count_codons
+from tombombadil.sample import make_base_params
+from tombombadil.sample import prior_log_likelihood
 
 class TestCodonOrder(unittest.TestCase):
     def test_codon_list_matches_model_order(self):
@@ -341,6 +343,85 @@ class TestDiagnosticObjective(unittest.TestCase):
         self.assertAlmostEqual(eta_one, eta_two, places=6)
 
 
+class TestOmegaModes(unittest.TestCase):
+    def setUp(self):
+        self.X = np.zeros((61, 3))
+        self.X[15, 0] = 4
+        self.X[47, 0] = 19
+        self.X[15, 1] = 3
+        self.X[47, 1] = 20
+        self.X[15, 2] = 5
+        self.X[47, 2] = 18
+        self.pi = np.full(61, 1 / 61)
+
+    def _fn(self, omega_mode, aggregate="sum", prior_mode="none"):
+        log_pi, pimat, pimatinv, pimult = transforms(self.X, self.pi)
+        return make_fn(
+            self.pi, log_pi, pimat, pimatinv, pimult, self.X,
+            np.ones(self.X.shape[1]), aggregate=aggregate,
+            prior_mode=prior_mode, eigen_jitter=False, omega_floor=False,
+            omega_mode=omega_mode,
+        )
+
+    def _params(self, omega):
+        return {
+            "alpha": softplus_inverse(1.0), "beta": softplus_inverse(1.0),
+            "gamma": softplus_inverse(1.0), "delta": softplus_inverse(1.0),
+            "epsilon": softplus_inverse(1.0), "eta": softplus_inverse(1.0),
+            "theta": softplus_inverse(0.5), "omega": omega,
+        }
+
+    def test_scalar_mode_uses_all_alignment_sites(self):
+        fn = self._fn("scalar")
+        params = self._params(softplus_inverse(0.5))
+        vector_params = self._params(jnp.repeat(jnp.array(softplus_inverse(0.5)), 3))
+        expected = float(self._fn("per-site")(vector_params) - prior_log_likelihood(
+            vector_params, 3, prior_mode="none", omega_mode="per-site", aggregate="sum"
+        ))
+        self.assertAlmostEqual(float(fn(params)), expected, places=5)
+        self.assertEqual(jnp.ndim(params["omega"]), 0)
+
+    def test_constant_per_site_likelihood_matches_scalar_without_prior(self):
+        scalar = self._fn("scalar", aggregate="sum")
+        vector = self._fn("per-site", aggregate="sum")
+        scalar_params = self._params(softplus_inverse(0.5))
+        vector_params = self._params(jnp.repeat(jnp.array(softplus_inverse(0.5)), 3))
+        self.assertAlmostEqual(float(scalar(scalar_params)), float(vector(vector_params)), places=5)
+
+    def test_per_site_base_params_have_expected_shape(self):
+        params = make_base_params(n_sites=3, omega_mode="per-site")
+        self.assertEqual(params["omega"].shape, (3,))
+        self.assertEqual(make_base_params(omega_mode="scalar")["omega"].shape, ())
+
+    def test_per_site_prior_is_aggregated_over_sites(self):
+        params = self._params(jnp.array([
+            softplus_inverse(0.25), softplus_inverse(0.5), softplus_inverse(1.0)
+        ]))
+        summed = prior_log_likelihood(params, 3, prior_mode="stan_unconstrained",
+                                      omega_mode="per-site", aggregate="sum")
+        mean = prior_log_likelihood(params, 3, prior_mode="stan_unconstrained",
+                                    omega_mode="per-site", aggregate="mean")
+        self.assertTrue(bool(jnp.isfinite(summed)))
+        self.assertTrue(bool(jnp.isfinite(mean)))
+
+    def test_per_site_output_separates_omega_from_scalar_parameters(self):
+        params = self._params(jnp.repeat(jnp.array(softplus_inverse(0.5)), 3))
+        with tempfile.TemporaryDirectory() as tmp:
+            stem = os.path.join(tmp, "fit")
+            save_params(stem, params, mask=np.array([0, 1, 1]), omega_mode="per-site")
+            with open(stem + "_omega.csv", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            with open(stem + "_scalar.csv", newline="") as handle:
+                scalar_rows = list(csv.DictReader(handle))
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([row["site"] for row in rows], ["1", "2", "3"])
+        self.assertNotIn("omega", {row["variable"] for row in scalar_rows})
+
+    def test_scalar_and_per_site_diagnostic_modes_are_distinctly_validated(self):
+        with self.assertRaises(ValueError):
+            self._fn("invalid")
+
+
 class TestCliDefaults(unittest.TestCase):
     def test_fitting_defaults_are_stan_unconstrained_with_eta(self):
         argv = ["tombombadil", "--alignment", "porB3.carriage.noindels.txt"]
@@ -362,6 +443,14 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(args.rng_seed, 0)
         self.assertEqual(args.target_acceptance_rate, 0.8)
         self.assertEqual(args.nuts_chain_mode, "sequential")
+        self.assertEqual(args.omega_mode, "scalar")
+
+    def test_omega_mode_parses(self):
+        argv = ["tombombadil", "--alignment", "porB3.carriage.noindels.txt",
+                "--omega-mode", "per-site"]
+        with mock.patch.object(sys, "argv", argv):
+            args = get_options()
+        self.assertEqual(args.omega_mode, "per-site")
 
     def test_fix_eta_flag_disables_eta_estimation(self):
         argv = ["tombombadil", "--alignment", "porB3.carriage.noindels.txt", "--fix-eta"]

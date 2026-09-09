@@ -66,6 +66,13 @@ def get_options():
     mGroup.add_argument('--pi-pseudocount', type=float, default=0.5,
                         help='Pseudocount used when --pi empirical or --pi F3x4 is selected '
                              '(default: 0.5)')
+    mGroup.add_argument('--omega-mode', choices=['scalar', 'per-site'], default='scalar',
+                        help='Estimate one omega for the alignment or one omega per codon site '
+                             '(default: scalar).')
+    mGroup.add_argument('--domains', type=str, default=None,
+                        help='Optional domain JSON for colouring per-site omega plots.')
+    mGroup.add_argument('--reference', type=str, default=None,
+                        help='Reference protein FASTA required with --domains.')
     mGroup.add_argument('--estimate-uncertainty', action='store_true', default=False,
                         help='Compute per-parameter standard errors via diagonal Laplace approximation '
                              '(Hessian-based). Can be memory-intensive for large alignments.')
@@ -286,16 +293,14 @@ def estimate_f3x4_pi_from_counts(X, pseudocount=0.5):
 
 def configure_jax_for_options(options):
     """Set JAX process flags that must exist before JAX is imported."""
-    if (
-        options.fit_method == "nuts"
-        and options.nuts_chain_mode == "pmap"
-        and options.platform == "cpu"
-    ):
-        cpu_devices = max(int(options.cpus), 1)
-        flag = f"--xla_force_host_platform_device_count={cpu_devices}"
-        existing = os.environ.get("XLA_FLAGS", "")
-        if "--xla_force_host_platform_device_count" not in existing:
-            os.environ["XLA_FLAGS"] = f"{existing} {flag}".strip()
+    from .device import configure_platform
+    configure_platform(
+        options.platform,
+        cpus=options.cpus,
+        force_cpu_devices=(
+            options.fit_method == "nuts" and options.nuts_chain_mode == "pmap"
+        ),
+    )
 
 def main():
     logging.basicConfig(
@@ -330,6 +335,8 @@ def main():
         raise ValueError(f"Unsupported --pi mode: {options.pi}")
 
     if options.diagnostic_fixed_params:
+        if options.omega_mode != 'scalar':
+            raise ValueError('--diagnostic-fixed-params currently supports only --omega-mode scalar')
         from .sample import evaluate_fixed_params
 
         diagnostic_params = {
@@ -350,11 +357,22 @@ def main():
             estimate_eta=not options.diagnostic_fix_eta,
             eigen_jitter=options.diagnostic_enable_jitter,
             omega_floor=options.diagnostic_enable_omega_floor,
+            omega_mode=options.omega_mode,
         )
         print(f"Diagnostic scalar-GTR objective: {value:.10f}")
         return
 
     from .sample import run_sampler
+
+    domain_labels = None
+    if options.domains is not None:
+        if options.omega_mode != 'per-site':
+            raise ValueError('--domains requires --omega-mode per-site')
+        if options.reference is None:
+            raise ValueError('--reference is required when --domains is specified')
+        from .domains import parse_domain_labels
+        domain_labels = parse_domain_labels(options.domains, options.alignment,
+                                            options.reference, X.shape[1])
 
     run_sampler(X, pi, options.sample_it, options.platform, options.cpus,
                 estimate_uncertainty=options.estimate_uncertainty,
@@ -375,7 +393,9 @@ def main():
                 num_chains=options.num_chains,
                 rng_seed=options.rng_seed,
                 target_acceptance_rate=options.target_acceptance_rate,
-                nuts_chain_mode=options.nuts_chain_mode)
+                nuts_chain_mode=options.nuts_chain_mode,
+                omega_mode=options.omega_mode,
+                domain_labels=domain_labels)
 
 if __name__ == "__main__":
     main()

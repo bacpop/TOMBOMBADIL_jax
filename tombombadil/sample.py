@@ -20,6 +20,14 @@ from .likelihood import gen_alpha_no_jitter
 
 
 SCALAR_PARAM_KEYS_WITH_ETA = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta", "omega"]
+GTR_PARAM_KEYS_WITH_ETA = ["alpha", "beta", "gamma", "delta", "epsilon", "eta", "theta"]
+OMEGA_MODES = ("scalar", "per-site")
+
+
+def validate_omega_mode(omega_mode):
+    if omega_mode not in OMEGA_MODES:
+        raise ValueError(f"Unknown omega mode: {omega_mode!r}")
+    return omega_mode
 
 @jit
 def my_dirichlet_multinomial_logpmf(x, a):
@@ -148,7 +156,8 @@ def _log_transform_jacobian(raw_value):
     return jnp.log(jnp.exp(raw_value))
 
 
-def prior_log_likelihood(raw_x, n_sites, prior_mode="current", estimate_eta=False):
+def prior_log_likelihood(raw_x, n_sites, prior_mode="current", estimate_eta=False,
+                         omega_mode="scalar", aggregate="sum"):
     """Log prior contributions for MAP regularisation.
 
     The data log-likelihood is mean-aggregated over sites (mean(losses)), which
@@ -171,6 +180,7 @@ def prior_log_likelihood(raw_x, n_sites, prior_mode="current", estimate_eta=Fals
     if prior_mode == "none":
         return jnp.array(0.0, dtype=jnp.float64)
 
+    validate_omega_mode(omega_mode)
     omega = positive(raw_x["omega"])
 
     if prior_mode == "current":
@@ -199,19 +209,28 @@ def prior_log_likelihood(raw_x, n_sites, prior_mode="current", estimate_eta=Fals
     if prior_mode == "stan_unconstrained":
         theta_prior += _log_transform_jacobian(raw_x["theta"])
 
+    if omega_mode == "per-site":
+        omega_prior = jnp.sum(omega_prior) if aggregate == "sum" else jnp.mean(omega_prior)
+
     if prior_mode in ("stan_constrained", "stan_unconstrained"):
         return omega_prior + gtr_prior + theta_prior
 
+    if omega_mode == "per-site":
+        return omega_prior + gtr_prior / n_sites + theta_prior
     return (omega_prior + gtr_prior) / n_sites + theta_prior
 
 
 def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
             include_invariant=True, aggregate="mean", prior_mode="current",
-            estimate_eta=False, eigen_jitter=True, omega_floor=True): # closure for defining fn (this change is mainly for making the unit testing easier, before it was a closure in run_sampler())
+            estimate_eta=False, eigen_jitter=True, omega_floor=True,
+            omega_mode="scalar"): # closure for defining fn
+    validate_omega_mode(omega_mode)
     model_fn = model if eigen_jitter else model_no_jitter
+    omega_axis = None if omega_mode == "scalar" else 0
     batched_loss = jax.vmap(
         model_fn,
-        in_axes=(None, None, None, None, None, None, None, None, None, None, None, None, None, 1)  # map over data only; omega is alignment-wide
+        in_axes=(None, None, None, None, None, None, None, omega_axis,
+                 None, None, None, None, None, 1)
     )
     def f(raw_x):
 
@@ -220,6 +239,11 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X[:, col])
         #return model(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7:], pi_eq, log_pi, N[col], pimat, pimatinv, pimult, X)
         x = jax.tree.map(positive, raw_x)
+
+        if omega_mode == "per-site" and x["omega"].shape != (X.shape[1],):
+            raise ValueError(
+                f"Per-site omega must have shape ({X.shape[1]},), got {x['omega'].shape}"
+            )
 
         if omega_floor:
             x["omega"] = jnp.where( # stops gradients for omegas <= 0.01
@@ -245,13 +269,17 @@ def make_fn(pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
         else:
             mask_f = mask.astype(jnp.float64)
             total = jnp.sum(selected_losses) / jnp.maximum(jnp.sum(mask_f), 1.0)
-        total = total + prior_log_likelihood(raw_x, X.shape[1], prior_mode=prior_mode, estimate_eta=estimate_eta)
+        total = total + prior_log_likelihood(
+            raw_x, X.shape[1], prior_mode=prior_mode,
+            estimate_eta=estimate_eta, omega_mode=omega_mode, aggregate=aggregate,
+        )
         return total
     return f
 
 
-def natural_to_raw_params(params):
+def natural_to_raw_params(params, omega_mode="scalar"):
     """Convert positive natural-scale parameters to this code's raw log scale."""
+    validate_omega_mode(omega_mode)
     return {k: jnp.array(softplus_inverse(v), dtype=jnp.float64) for k, v in params.items()}
 
 
@@ -261,8 +289,14 @@ def make_mask(X):
     return np.where(col_max == col_sum, 0, 1)
 
 
-def make_base_params(estimate_eta=True):
+def make_base_params(estimate_eta=True, n_sites=None, omega_mode="scalar"):
     """Build default raw initial parameters for scalar-GTR fitting."""
+    validate_omega_mode(omega_mode)
+    if omega_mode == "per-site" and n_sites is None:
+        raise ValueError("n_sites is required for per-site omega")
+    omega = jnp.array(softplus_inverse(0.5), dtype=jnp.float64)
+    if omega_mode == "per-site":
+        omega = jnp.repeat(omega, int(n_sites))
     params = {
         "alpha":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "beta":    jnp.array(softplus_inverse(1),   dtype=jnp.float64),
@@ -270,7 +304,7 @@ def make_base_params(estimate_eta=True):
         "delta":   jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "epsilon": jnp.array(softplus_inverse(1),   dtype=jnp.float64),
         "theta":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
-        "omega":   jnp.array(softplus_inverse(0.5), dtype=jnp.float64),
+        "omega":   omega,
     }
     if estimate_eta:
         params["eta"] = jnp.array(softplus_inverse(1), dtype=jnp.float64)
@@ -278,17 +312,18 @@ def make_base_params(estimate_eta=True):
 
 
 def make_param_labels(params):
-    return {k: "scalar" for k in params}
+    return {k: ("vec" if k == "omega" and jnp.ndim(v) else "scalar")
+            for k, v in params.items()}
 
 
 def evaluate_fixed_params(X, pi_eq, natural_params, include_invariant=True,
                           aggregate="sum", prior_mode="none",
                           estimate_eta=True, eigen_jitter=False,
-                          omega_floor=False):
+                          omega_floor=False, omega_mode="scalar"):
     """Evaluate the scalar-GTR objective at fixed natural-scale parameters."""
     log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     mask = make_mask(X)
-    raw_params = natural_to_raw_params(natural_params)
+    raw_params = natural_to_raw_params(natural_params, omega_mode=omega_mode)
     fn = make_fn(
         pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
         include_invariant=include_invariant,
@@ -297,6 +332,7 @@ def evaluate_fixed_params(X, pi_eq, natural_params, include_invariant=True,
         estimate_eta=estimate_eta,
         eigen_jitter=eigen_jitter,
         omega_floor=omega_floor,
+        omega_mode=omega_mode,
     )
     return float(fn(raw_params))
 
@@ -406,9 +442,10 @@ def compute_laplace_se(fn, params):
     return se_raw, se_natural
 
 
-def _print_laplace_summary(params, se_natural):
+def _print_laplace_summary(params, se_natural, omega_mode="scalar"):
     """Print a human-readable summary of MAP estimates ± 1 SE (natural scale)."""
-    gtr_keys = SCALAR_PARAM_KEYS_WITH_ETA
+    validate_omega_mode(omega_mode)
+    gtr_keys = GTR_PARAM_KEYS_WITH_ETA
     print("\n--- Laplace approximation (diagonal) ---")
     print("Scalar parameters (natural scale):")
     for k in gtr_keys:
@@ -416,23 +453,42 @@ def _print_laplace_summary(params, se_natural):
             est = float(positive(params[k]))
             se  = float(se_natural[k])
             print(f"  {k:8s}: {est:.4f} ± {se:.4f}")
+    if "omega" in params:
+        omega = np.asarray(positive(params["omega"]))
+        se = np.asarray(se_natural["omega"])
+        if omega_mode == "scalar":
+            print(f"  {'omega':8s}: {float(omega):.4f} ± {float(se):.4f}")
+        else:
+            print(f"  {'omega':8s}: {len(omega)} site-wise standard errors")
     print("----------------------------------------\n")
 
 
-def save_params(output_stem: str, params: dict, mask: np.ndarray = None) -> None:
+def save_params(output_stem: str, params: dict, mask: np.ndarray = None,
+                omega_mode="scalar") -> None:
     """Save MAP scalar parameter estimates to CSV.
 
     {output_stem}_scalar.csv  — scalar parameters (variable, value)
     """
     scalar_path = output_stem + "_scalar.csv"
 
-    scalar_keys = SCALAR_PARAM_KEYS_WITH_ETA
+    validate_omega_mode(omega_mode)
+    scalar_keys = SCALAR_PARAM_KEYS_WITH_ETA if omega_mode == "scalar" else GTR_PARAM_KEYS_WITH_ETA
     rows = [(k, float(positive(params[k]))) for k in scalar_keys if k in params]
     with open(scalar_path, "w", newline="") as f:
         w = _csv.writer(f)
         w.writerow(["variable", "value"])
         w.writerows(rows)
     logging.info("Saved scalar parameters to: %s", scalar_path)
+    if omega_mode == "per-site":
+        if mask is None:
+            mask = np.ones(len(np.asarray(params["omega"])), dtype=int)
+        omega_path = output_stem + "_omega.csv"
+        with open(omega_path, "w", newline="") as f:
+            w = _csv.writer(f)
+            w.writerow(["site", "omega_map", "variant"])
+            for i, (value, variant) in enumerate(zip(np.asarray(positive(params["omega"])), mask), start=1):
+                w.writerow([i, float(value), int(variant)])
+        logging.info("Saved per-site omega estimates to: %s", omega_path)
 
 
 def _sample_blackjax_chain(logdensity_fn, initial_position, rng_key, num_warmup,
@@ -496,15 +552,26 @@ def _posterior_draws_natural(raw_samples):
     return {k: positive(v) for k, v in raw_samples.items()}
 
 
-def summarize_posterior_samples(raw_samples, infos):
+def summarize_posterior_samples(raw_samples, infos, omega_mode="scalar"):
     """Summarize posterior samples and BlackJAX diagnostics on natural scale."""
     samples = _posterior_draws_natural(raw_samples)
+    validate_omega_mode(omega_mode)
     summaries = {}
     for k in SCALAR_PARAM_KEYS_WITH_ETA:
         if k not in samples:
             continue
         vals = np.asarray(samples[k])
-        flat = vals.reshape(-1)
+        flat = vals.reshape(-1) if omega_mode == "scalar" or k != "omega" else vals.reshape(-1, vals.shape[-1])
+        if omega_mode == "per-site" and k == "omega":
+            summaries[k] = {
+                "mean": np.mean(flat, axis=0), "sd": np.std(flat, axis=0, ddof=1),
+                "median": np.quantile(flat, 0.5, axis=0),
+                "q2.5": np.quantile(flat, 0.025, axis=0), "q25": np.quantile(flat, 0.25, axis=0),
+                "q75": np.quantile(flat, 0.75, axis=0), "q97.5": np.quantile(flat, 0.975, axis=0),
+                "ess": np.asarray(blackjax.ess(samples[k])),
+                "rhat": np.asarray(blackjax.rhat(samples[k])) if vals.shape[0] > 1 else np.full(vals.shape[-1], np.nan),
+            }
+            continue
         summaries[k] = {
             "mean": float(np.mean(flat)),
             "sd": float(np.std(flat, ddof=1)) if flat.size > 1 else 0.0,
@@ -524,10 +591,11 @@ def summarize_posterior_samples(raw_samples, infos):
     return samples, summaries, diagnostics
 
 
-def save_posterior_outputs(output_stem, raw_samples, summaries):
+def save_posterior_outputs(output_stem, raw_samples, summaries, omega_mode="scalar"):
     """Save posterior draws and scalar summaries to CSV files."""
     samples = _posterior_draws_natural(raw_samples)
-    keys = [k for k in SCALAR_PARAM_KEYS_WITH_ETA if k in samples]
+    validate_omega_mode(omega_mode)
+    keys = [k for k in SCALAR_PARAM_KEYS_WITH_ETA if k in samples and (omega_mode == "scalar" or k != "omega")]
     samples_path = output_stem + "_posterior_samples.csv"
     with open(samples_path, "w", newline="") as f:
         w = _csv.writer(f)
@@ -536,6 +604,17 @@ def save_posterior_outputs(output_stem, raw_samples, summaries):
         for chain in range(n_chains):
             for draw in range(n_draws):
                 w.writerow([chain, draw] + [float(samples[k][chain, draw]) for k in keys])
+
+    if omega_mode == "per-site":
+        omega_summary_path = output_stem + "_omega_posterior_summary.csv"
+        omega = np.asarray(samples["omega"])
+        summary = summaries["omega"]
+        with open(omega_summary_path, "w", newline="") as f:
+            w = _csv.writer(f)
+            w.writerow(["site", "mean", "sd", "median", "q2.5", "q25", "q75", "q97.5", "ess", "rhat"])
+            for site in range(omega.shape[-1]):
+                w.writerow([site + 1] + [float(summary[field][site]) for field in
+                                         ("mean", "sd", "median", "q2.5", "q25", "q75", "q97.5", "ess", "rhat")])
 
     summary_path = output_stem + "_posterior_summary.csv"
     with open(summary_path, "w", newline="") as f:
@@ -556,6 +635,9 @@ def _print_posterior_summary(summaries, diagnostics):
         if k not in summaries:
             continue
         s = summaries[k]
+        if np.ndim(s["mean"]) != 0:
+            print(f"  {k:8s}: {len(np.asarray(s['mean']))} site-wise posterior summaries")
+            continue
         print(
             f"  {k:8s}: mean={s['mean']:.4f}, median={s['median']:.4f}, "
             f"95% CI=({s['q2.5']:.4f}, {s['q97.5']:.4f}), "
@@ -571,7 +653,7 @@ def _print_posterior_summary(summaries, diagnostics):
 def run_nuts_sampler(fn, start_params, num_warmup=1000, num_samples=1000,
                      num_chains=4, rng_seed=0, target_acceptance_rate=0.8,
                      output=None, print_summary=True,
-                     chain_mode="sequential"):
+                     chain_mode="sequential", omega_mode="scalar"):
     """Run BlackJAX NUTS from raw unconstrained starting parameters."""
     if chain_mode not in ("sequential", "pmap"):
         raise ValueError(f"Unknown NUTS chain mode: {chain_mode}")
@@ -620,11 +702,13 @@ def run_nuts_sampler(fn, start_params, num_warmup=1000, num_samples=1000,
         raw_samples = _stack_chain_pytrees(chain_positions)
         infos = _stack_chain_pytrees(chain_infos)
 
-    natural_samples, summaries, diagnostics = summarize_posterior_samples(raw_samples, infos)
+    natural_samples, summaries, diagnostics = summarize_posterior_samples(
+        raw_samples, infos, omega_mode=omega_mode
+    )
     if print_summary:
         _print_posterior_summary(summaries, diagnostics)
     if output is not None:
-        save_posterior_outputs(output, raw_samples, summaries)
+        save_posterior_outputs(output, raw_samples, summaries, omega_mode=omega_mode)
 
     return {
         "raw_samples": raw_samples,
@@ -693,7 +777,7 @@ def _run_replicates(fn, start_params, param_labels, n_reps, n_iter=100, converge
 def plot_replicates(all_params_list, best_idx):
     """Plot scalar parameter estimates across replicate runs."""
     n_reps = len(all_params_list)
-    scalar_keys = [k for k in SCALAR_PARAM_KEYS_WITH_ETA if k in all_params_list[0]]
+    scalar_keys = [k for k in GTR_PARAM_KEYS_WITH_ETA if k in all_params_list[0]]
     cmap = plt.cm.tab10
 
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -721,6 +805,30 @@ def plot_replicates(all_params_list, best_idx):
     return fig, ax
 
 
+def plot_per_site_omega(params, mask=None, domain_labels=None):
+    """Plot per-site omega estimates, optionally coloured by domain labels."""
+    omega = np.asarray(positive(params["omega"]))
+    sites = np.arange(1, len(omega) + 1)
+    fig, ax = plt.subplots(figsize=(12, 4))
+    colours = np.full(len(omega), "black", dtype=object)
+    if mask is not None:
+        colours[np.asarray(mask) == 0] = "lightgrey"
+    if domain_labels is not None:
+        labels = np.asarray(domain_labels, dtype=object)
+        if labels.shape != omega.shape:
+            raise ValueError("Domain labels must have one value per alignment site")
+        colours = np.where(labels == "extracellular", "tomato", colours)
+        colours = np.where(labels == "other", "steelblue", colours)
+    ax.scatter(sites, omega, c=colours, s=15, alpha=0.75)
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=1)
+    ax.set_yscale("log")
+    ax.set_xlabel("Alignment codon site")
+    ax.set_ylabel("omega")
+    ax.set_title("Per-site omega estimates")
+    fig.tight_layout()
+    return fig, ax
+
+
 def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 estimate_uncertainty=False, fit_replicates=1,
                 include_invariant=True, output=None, aggregate="sum",
@@ -731,7 +839,9 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
                 convergence_min_steps=50, fit_method="map",
                 num_warmup=1000, num_samples=1000, num_chains=4,
                 rng_seed=0, target_acceptance_rate=0.8,
-                nuts_chain_mode="sequential"):
+                nuts_chain_mode="sequential", omega_mode="scalar",
+                domain_labels=None):
+    validate_omega_mode(omega_mode)
     logging.info("Precomputing transforms...")
     #col = 30 # site in the alignment
     col = 7 # site in the alignment # this is a column with a bit of diversity (unlike 31)
@@ -805,7 +915,9 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
     #log_pi, pimat, pimatinv, pimult = transforms(X, pi_eq)
     logging.info("Compiling model...")
 
-    base_params = make_base_params(estimate_eta=estimate_eta)
+    base_params = make_base_params(
+        n_sites=X.shape[1], estimate_eta=estimate_eta, omega_mode=omega_mode
+    )
     base_labels = make_param_labels(base_params)
     fn = make_fn(
         pi_eq, log_pi, pimat, pimatinv, pimult, X, mask,
@@ -815,6 +927,7 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         estimate_eta=estimate_eta,
         eigen_jitter=eigen_jitter,
         omega_floor=omega_floor,
+        omega_mode=omega_mode,
     )
 
     if fit_method == "nuts":
@@ -832,6 +945,7 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
             target_acceptance_rate=target_acceptance_rate,
             output=output,
             chain_mode=nuts_chain_mode,
+            omega_mode=omega_mode,
         )
 
     logging.info(f"Running optimization — {fit_replicates} replicate(s)...")
@@ -855,8 +969,9 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
     print('Final likelihood: ', fn(params))
     print('final parameters: ', jax.tree.map(positive, jnp.array([
         params["alpha"], params["beta"], params["gamma"],
-        params["delta"], params["epsilon"], params["theta"], params["omega"]
-    ])))
+        params["delta"], params["epsilon"], params["theta"]
+        ])))
+    print('final omega: ', jax.tree.map(positive, params["omega"]))
     if estimate_eta:
         print('final eta: ', positive(params["eta"]))
         print('transition/transversion ratio: ', 
@@ -871,13 +986,18 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
     if fit_replicates > 1:
         plot_replicates(all_params, best_idx)
         plt.show()
+    if omega_mode == "per-site":
+        fig, _ = plot_per_site_omega(params, mask=mask, domain_labels=domain_labels)
+        if output is not None:
+            fig.savefig(output + "_omega_plot.pdf", format="pdf", bbox_inches="tight")
+        plt.show()
     if estimate_uncertainty:
         logging.info("Computing Laplace uncertainty...")
         _, se_nat = compute_laplace_se(fn, params)
-        _print_laplace_summary(params, se_nat)
+        _print_laplace_summary(params, se_nat, omega_mode=omega_mode)
 
     if output is not None:
-        save_params(output, params)
+        save_params(output, params, mask=mask, omega_mode=omega_mode)
 
     return {
         "params": params,
