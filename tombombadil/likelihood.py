@@ -1,14 +1,26 @@
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+from jax import jit
 
 from .gtr import update_GTR
+from .gtr import build_GTR
 
-
-def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
+def _gen_alpha_impl(omega, A, pimat, pimult, pimatinv, scale, eigen_jitter):
     #print("A", A[7, ])
     mutmat = update_GTR(A, omega, pimult)
+    #mutmat = build_GTR(alpha, beta, gamma, delta, epsilon, eta, omega, pimat, pimult) # compared these two versions (needs passing args to gen_alpha but update_GTR slightly faster)
     #print("mutmat", mutmat)
+
+    mutmat = mutmat + eigen_jitter * jnp.eye(mutmat.shape[-1]) # add jitter to diagonal (avoids repeated eigenvalues --> eigenvectors are not uniquely defined --> gradient of eigenvectors is undefined / discontinuous --> nans in optimizer)
+    # supposedly does not affect the model much (--> might need to confirm this later)
+
+    #eigvals = jnp.linalg.eigvalsh(mutmat)
+    #jax.debug.print(
+    #    "eigvals[3] = {e}",
+    #    e=eigvals[3],
+    #)
 
     w, v = jnp.linalg.eigh(mutmat, UPLO='U') # computes eigen vectors (v) and values (w)
     #print(f"w.shape={w.shape}")
@@ -36,7 +48,7 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     #print("m_AB", m_AB[31, ]) 
     #print("m_AB2", m_AB[7, ])
     #### agrees with stan version up to here
-
+    #m_AB = jnp.where(jnp.isnan(m_AB), 1.0e-6, m_AB) tried this but not sure it's better, real question is where the nans come from
     #print("m_AB", m_AB)
     #print((m_AB.max()))
     # Normalise by m_AA
@@ -48,21 +60,35 @@ def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
     for i in range(61):
         m_AB = m_AB.at[:,i].set(jnp.true_divide(m_AB[:,i], m_AB[i,i]))
         m_AB = m_AB.at[i,i].set(1.0e-06)
-        for j in range(61):
-            if m_AB[i,j] < 0: 
-                m_AB = m_AB.at[i,j].set(1.0e-06)
-    
+    #    for j in range(61):
+    #        if m_AB[i,j] < 0:
+    #            m_AB = m_AB.at[i,j].set(1.0e-06)
+
+    #m_AB = jnp.where(m_AB < 1.0e-6, 1.0e-6, m_AB) # tried this but not sure it's better
+    m_AB = jnp.where(m_AB < 0, 1.0e-6, m_AB) # better with jax because if can lead to error "Attempted boolean conversion of traced array with shape bool[]"
+
     #plt.matshow(m_AB)
     #plt.show()
     m_AB = m_AB.T
     #print("m_AB3", m_AB[7, ])
     #print(jnp.diag(m_AB))
     #print("m_AA", m_AA[31, ])
-    #print((m_AA.max())) 
+    #print((m_AA.max()))
     #print("m_AB", m_AB[31, ])
     #print((m_AB.max())) # appears to become zero here.
     muti = m_AB + jnp.eye(61, 61)
     #print(jnp.diag(muti))
     return muti
 
+
+@jax.profiler.annotate_function
+@jit
+def gen_alpha(omega, A, pimat, pimult, pimatinv, scale):
+    return _gen_alpha_impl(omega, A, pimat, pimult, pimatinv, scale, 1e-6)
+
+
+@jax.profiler.annotate_function
+@jit
+def gen_alpha_no_jitter(omega, A, pimat, pimult, pimatinv, scale):
+    return _gen_alpha_impl(omega, A, pimat, pimult, pimatinv, scale, 0.0)
 
