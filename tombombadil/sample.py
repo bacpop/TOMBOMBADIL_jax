@@ -983,7 +983,7 @@ def run_sampler(X, pi_eq, samples=500, platform='cpu', threads=8,
         params["alpha"], params["beta"], params["gamma"],
         params["delta"], params["epsilon"], params["theta"]
         ])))
-    print('final omega: ', jax.tree.map(positive, params["omega"]))
+    print('dN/dS is estimated to be: ', jax.tree.map(positive, params["omega"]))
     status = "converged" if best_metadata["converged"] else "reached max steps"
     print(f"Optimization status: {status} after {best_metadata['n_steps']} step(s)")
     #print('Objective function: ', loss_fn(params))

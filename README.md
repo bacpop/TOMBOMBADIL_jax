@@ -40,18 +40,13 @@ python -m tombombadil --alignment alignment.fas.aln --omega-mode per-site --doma
 - Scalar omega parameter inference with MCMC (NUTS) using blackJax
 
 ```bash
-python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --output-jax output.txt
+python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 100 --num-samples 100 --num-chains 4 --output-jax output.txt --cpus 4 --nuts-chain-mode pmap
 ```
 
-- Scalar omega parameter inference with MCMC (NUTS) using blackJax with parallel chains
-
-```bash
-python -m tombombadil --alignment alignment.fas.aln --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --nuts-chain-mode pmap --output-jax output.txt
-```
 
 - Fit one omega estimate for per codon position in the alignment with MCMC (NUTS) using blackJax 
 ```bash
-python -m tombombadil --alignment alignment.fas.aln --omega-mode per-site --fit-method nuts --num-warmup 250 --num-samples 500 --num-chains 4 --output-jax output.txt
+python -m tombombadil --alignment alignment.fas.aln --omega-mode per-site --fit-method nuts --num-warmup 100 --num-samples 100 --num-chains 4 --output-jax output.txt --cpus 4 --nuts-chain-mode pmap
 ```
 
 
@@ -94,6 +89,7 @@ This writes `per_site_porB3_map_GTRparams.csv`,
 `per_site_porB3_map_omega.csv`, and a per-site omega plot.
 
 ### 3. Scalar omega with NUTS sampling
+(takes about 2.5 minutes on four cpu cores)
 
 NUTS estimates a posterior distribution for one alignment-wide omega.
 
@@ -102,13 +98,16 @@ python -m tombombadil \
   --alignment porB3_aligned.fasta \
   --omega-mode scalar \
   --fit-method nuts \
-  --num-warmup 250 \
-  --num-samples 500 \
+  --num-warmup 100 \
+  --num-samples 100 \
   --num-chains 4 \
-  --output-jax porB3_nuts
+  --output-jax porB3_nuts \
+  --cpus 4 \
+  --nuts-chain-mode pmap
 ```
 
 ### 4. Per-site omega with NUTS sampling
+(takes about one hour on four cpu cores)
 
 This samples a posterior distribution for every codon-site omega. It is more
 computationally demanding because the parameter dimension grows with the
@@ -119,10 +118,12 @@ python -m tombombadil \
   --alignment porB3_aligned.fasta \
   --omega-mode per-site \
   --fit-method nuts \
-  --num-warmup 250 \
-  --num-samples 500 \
+  --num-warmup 100 \
+  --num-samples 100 \
   --num-chains 4 \
-  --output-jax porB3_nuts
+  --output-jax porB3_nuts \
+  --cpus 4 \
+  --nuts-chain-mode pmap
 ```
 
 For CPU parallel chains, add `--nuts-chain-mode pmap --cpus 4`. Otherwise,
